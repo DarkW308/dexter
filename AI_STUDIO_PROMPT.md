@@ -42,7 +42,8 @@ I have uploaded the architectural specifications, SQLite schema (`schema.sql`), 
 - **Device:** Vivo V11 (MediaTek Helio P60 MT6771, 6GB RAM, Android 8.0 / API 26).
 - **Minimum SDK:** API 21 (Android 5.0 Lollipop).
 - **Target SDK:** API 34.
-- **Language:** 100% Kotlin with Coroutines.
+- **Language:** 100% Pure Kotlin with Coroutines.
+- **CRITICAL NO-PYTHON CONSTRAINT:** There is ZERO Python in the Android app. No Chaquopy, no Pyodide, no Python interpreter. The uploaded `.py` files (`action_system.py`, `qwen_contract.py`) are reference architecture ONLY — port their exact algorithms and safety rules into 100% native Kotlin.
 - **Architecture:** Clean Architecture with single source of truth in SQLite (`dexter.db`).
 - **Dependencies:** Android Room or raw SQLiteOpenHelper with WAL mode and Foreign Keys enabled, OkHttp 4, kotlinx.serialization. NO heavy frameworks (No Compose, No Dagger/Hilt, No Firebase, No RxJava).
 

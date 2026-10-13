@@ -81,10 +81,10 @@ TTS Response
 The voice pipeline runs in three modes. Mode 1 is the default and must be the primary daily-use mode for MVP.
 
 ### Mode 1 — Always-On Hands-Free (Alexa Mode) ★ PRIMARY
-- **Wake-word engine:** `openWakeWord` (Python-side, ARM64 native binary) bundled in `assets/wakeword/`. Runs on a background thread at `16 kHz`, `512-frame` windows. CPU use: ≤ 15% of one A53 core.
-- **Trigger:** User says **"Hey Dexter"** → wake-word fires → mic opens full-quality → STT starts.
+- **Wake-word engine:** Native C++ engine (ONNX Runtime Mobile / Vosk / Porcupine ARM64 `.so`) bundled in `jniLibs/arm64-v8a/` with 8-bit quantized model (< 3 MB) in `assets/`. **Zero Python runtime required.** Runs on a background thread at `16 kHz`, `512-frame` windows. CPU use: ≤ 10% of one A53 core.
+- **Trigger:** User says **"Hey Dexter"** → wake-word fires → mic opens full-quality → native STT starts.
 - **No screen touch required, no button required.** The phone can be across the room.
-- **Battery-safe design:** wake-word engine uses a separate low-priority `HandlerThread`. The hot-word model is tiny (< 5 MB) and runs in 8-bit quantized mode to minimize CPU heat.
+- **Battery-safe design:** wake-word engine uses a separate low-priority `HandlerThread` (`THREAD_PRIORITY_LOWEST`). Runs integer math only to avoid CPU heat.
 - **Feedback:** On wake-word detect → short 80ms haptic vibration + soft "ding" earcon sound.
 
 ### Mode 2 — Volume-Button Double-Press (Pocket Mode)
