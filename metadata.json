@@ -1,0 +1,8 @@
+{
+  "name": "Dexter",
+  "description": "Privacy-focused, offline-first personal AI assistant with voice orb, task management, expense tracking, journal notes, goals, and daily briefing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
