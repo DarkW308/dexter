@@ -1,0 +1,198 @@
+[
+  {
+    "name": "create_task",
+    "description": "Create or add a new task, todo item, reminder, or scheduled activity with a title.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title or description of the task to create"
+        }
+      },
+      "required": ["title"]
+    }
+  },
+  {
+    "name": "list_pending_tasks",
+    "description": "List, show, or display all currently pending, open, or unfinished tasks and todos.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "complete_task",
+    "description": "Complete, mark done, or finish a task by its numeric ID.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "integer",
+          "description": "The numeric ID of the task to complete"
+        }
+      },
+      "required": ["task_id"]
+    }
+  },
+  {
+    "name": "user_report_task_completion",
+    "description": "Record the user's statement that they personally finished or completed a task.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "integer",
+          "description": "The numeric ID of the task the user reported completed"
+        }
+      },
+      "required": ["task_id"]
+    }
+  },
+  {
+    "name": "cancel_task",
+    "description": "Cancel, delete, remove, or abandon an existing task by its numeric task ID.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "integer",
+          "description": "The numeric ID of the task to cancel or delete"
+        }
+      },
+      "required": ["task_id"]
+    }
+  },
+  {
+    "name": "complete_all_tasks",
+    "description": "Complete, finish, or mark done all pending tasks at once.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_completed_tasks",
+    "description": "Show, list, or check recently completed or finished tasks.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "log_expense",
+    "description": "Record an expense, spending, money paid, purchase, or financial transaction.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "number",
+          "description": "The numerical amount of money spent"
+        },
+        "description": {
+          "type": "string",
+          "description": "What the money was spent on or purpose of payment"
+        }
+      },
+      "required": ["amount", "description"]
+    }
+  },
+  {
+    "name": "summarize_expenses",
+    "description": "Check total money spent, expense summary, or financial expenditure balance.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "log_journal",
+    "description": "Save, jot down, or record a personal note, thought, idea, or journal entry.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "The note content, thought, or idea to save"
+        }
+      },
+      "required": ["content"]
+    }
+  },
+  {
+    "name": "list_journal",
+    "description": "Read, display, show, or list saved notes, thoughts, or journal entries.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_alarms",
+    "description": "Check, display, or list active alarms, timers, or scheduled reminders.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "cancel_alarms",
+    "description": "Turn off, stop, dismiss, or cancel all active alarms or reminders.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "daily_briefing",
+    "description": "Get the daily briefing, morning overview, agenda, or day plan summary.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "create_goal",
+    "description": "Create or set a new long-term personal or professional goal.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title or description of the goal"
+        }
+      },
+      "required": ["title"]
+    }
+  },
+  {
+    "name": "list_goals",
+    "description": "List, show, or review active goals and long-term targets.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "create_project",
+    "description": "Create or start a new project or initiative.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the project"
+        }
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "list_projects",
+    "description": "List, display, or review active projects.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  }
+]

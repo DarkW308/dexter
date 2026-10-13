@@ -1,0 +1,40 @@
+# Python & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Archives & Temporary files
+*.zip
+*.tar.gz
+*.7z
+*.tmp
+*.bak
+*.log
+
+# Dexter Local Data & DBs
+data/
+*.db
+*.db-wal
+*.db-shm
+*.wav
+*.pcm
+recordings/
+
+# Android & Gradle (for when Android project is generated)
+.gradle/
+build/
+app/build/
+*.apk
+*.aab
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# Scratch & Dev
+scratch/

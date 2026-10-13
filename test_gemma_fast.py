@@ -1,0 +1,22 @@
+import urllib.request
+import json
+import time
+
+payload = {
+    'model': 'functiongemma',
+    'messages': [
+        {'role': 'user', 'content': 'Create a task to buy milk'}
+    ],
+    'stream': False,
+    'options': {'temperature': 0.0, 'num_predict': 30}
+}
+t0 = time.time()
+req = urllib.request.Request('http://127.0.0.1:11434/api/chat', data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
+try:
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        res = json.loads(resp.read().decode())
+    t1 = time.time()
+    print(f'LATENCY: {t1-t0:.2f}s', flush=True)
+    print('RESPONSE:', res.get('message', {}).get('content', ''), flush=True)
+except Exception as e:
+    print('ERROR:', e, flush=True)
