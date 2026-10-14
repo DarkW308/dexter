@@ -1,18 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".DexterApp"
         android:allowBackup="true"
+        android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Dexter">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -23,6 +32,46 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ui.activity.TasksActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Dexter" />
+
+        <activity
+            android:name=".ui.activity.FinanceActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Dexter" />
+
+        <activity
+            android:name=".ui.activity.JournalActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Dexter" />
+
+        <activity
+            android:name=".ui.activity.SegmentsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Dexter" />
+
+        <activity
+            android:name=".ui.activity.SegmentDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Dexter" />
+
+        <service
+            android:name=".service.DexterVoiceService"
+            android:foregroundServiceType="microphone"
+            android:exported="false" />
+
+        <receiver
+            android:name=".receiver.DexterAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.aistudio.dexter.ALARM_TRIGGER" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

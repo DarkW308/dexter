@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    android:background="@drawable/bg_card"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="14dp">
+
+    <!-- Direction Indicator Pill -->
+    <TextView
+        android:id="@+id/tvTxDirectionIcon"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@drawable/bg_surface_rounded"
+        android:gravity="center"
+        android:text="↓"
+        android:textColor="@color/dexter_error"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+    <!-- Description, Category, Date -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvTxDescription"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Morning Coffee &amp; Snack"
+            android:textColor="@color/dexter_on_background"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvTxCategory"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Food &amp; Dining"
+                android:textColor="@color/dexter_primary"
+                android:textSize="11sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" · "
+                android:textColor="@color/dexter_on_surface_variant"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/tvTxDate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Oct 13, 10:30 AM"
+                android:textColor="@color/dexter_on_surface_variant"
+                android:textSize="11sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" · "
+                android:textColor="@color/dexter_on_surface_variant"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/tvTxRef"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:text="#TX-1"
+                android:textColor="@color/dexter_on_surface_variant"
+                android:textSize="10sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Amount Column -->
+    <TextView
+        android:id="@+id/tvTxAmount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:text="-₹150.00"
+        android:textColor="@color/dexter_error"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+</LinearLayout>

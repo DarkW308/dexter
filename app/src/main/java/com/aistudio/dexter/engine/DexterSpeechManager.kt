@@ -165,6 +165,9 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
                 Log.e("DexterSpeech", "Error starting SpeechRecognizer", e)
                 _orbState.value = OrbVisualState.IDLE
             }
+        } else {
+            Log.w("DexterSpeech", "Speech recognition not available on this device; ready for text input")
+            _orbState.value = OrbVisualState.IDLE
         }
     }
 

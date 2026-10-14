@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/dexter_modal_scrim"
+    android:padding="20dp">
+
+    <!-- Top Bar with Close Button -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/btnClose"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Close voice dialog"
+            app:srcCompat="@drawable/ic_close"
+            app:tint="@color/dexter_on_background" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/audioIndicator"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:text="● REC"
+            android:textColor="@color/status_live"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Center Content: Voice Orb & Transcript -->
+    <LinearLayout
+        android:id="@+id/centerContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <!-- Voice Orb (220dp) -->
+        <com.aistudio.dexter.ui.view.VoiceOrbView
+            android:id="@+id/dialogVoiceOrb"
+            android:layout_width="220dp"
+            android:layout_height="220dp" />
+
+        <!-- Dynamic State Label -->
+        <TextView
+            android:id="@+id/stateLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="Listening..."
+            android:textColor="@color/dexter_primary_glow"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <!-- Live Partial / Final Transcript -->
+        <TextView
+            android:id="@+id/transcriptText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="24dp"
+            android:layout_marginRight="24dp"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:minHeight="48dp"
+            android:text="Say something like &quot;Spent 450 on fuel&quot; or &quot;Remind me to call mom at 5 PM&quot;"
+            android:textColor="@color/dexter_on_background"
+            android:textSize="18sp"
+            android:textStyle="italic" />
+
+        <!-- Spoken / Written Response -->
+        <TextView
+            android:id="@+id/responseText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="24dp"
+            android:layout_marginRight="24dp"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:textColor="@color/dexter_success"
+            android:textSize="15sp"
+            android:visibility="gone" />
+
+        <!-- Inline Confirmation Prompt Card -->
+        <LinearLayout
+            android:id="@+id/confirmationCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="16dp"
+            android:layout_marginRight="16dp"
+            android:layout_marginTop="24dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/confirmationPromptText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="Are you sure you want to perform this action?"
+                android:textColor="@color/dexter_on_background"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnCancelConfirm"
+                    style="@style/DexterButton.Cancel"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:text="Cancel" />
+
+                <Button
+                    android:id="@+id/btnAcceptConfirm"
+                    style="@style/DexterButton.Primary"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:text="Confirm" />
+            </LinearLayout>
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Bottom Container: Fallback Manual Text Input & Cancel -->
+    <LinearLayout
+        android:id="@+id/bottomContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_surface_rounded"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingLeft="12dp"
+            android:paddingRight="12dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
+
+            <EditText
+                android:id="@+id/inputFallbackText"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:background="@null"
+                android:hint="Or type instruction here..."
+                android:imeOptions="actionSend"
+                android:inputType="text"
+                android:textColor="@color/dexter_on_background"
+                android:textColorHint="@color/dexter_on_surface_variant"
+                android:textSize="14sp" />
+
+            <ImageButton
+                android:id="@+id/btnSendText"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Send text command"
+                app:srcCompat="@drawable/ic_send"
+                app:tint="@color/dexter_primary" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnCancelModal"
+            style="@style/DexterButton.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:text="Cancel Voice Input" />
+    </LinearLayout>
+
+</RelativeLayout>

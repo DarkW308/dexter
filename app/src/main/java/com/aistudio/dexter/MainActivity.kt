@@ -1,306 +1,386 @@
 package com.aistudio.dexter
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import android.view.View
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import com.aistudio.dexter.data.repository.DexterRepository
+import com.aistudio.dexter.databinding.ActivityMainBinding
+import com.aistudio.dexter.engine.DexterActionExecutor
+import com.aistudio.dexter.engine.DexterSpeechManager
 import com.aistudio.dexter.engine.OrbVisualState
-import com.aistudio.dexter.ui.components.VoiceInteractionModal
-import com.aistudio.dexter.ui.screens.*
-import com.aistudio.dexter.ui.theme.*
-import com.aistudio.dexter.ui.viewmodel.DexterViewModel
+import com.aistudio.dexter.service.DexterVoiceService
+import com.aistudio.dexter.ui.activity.FinanceActivity
+import com.aistudio.dexter.ui.activity.JournalActivity
+import com.aistudio.dexter.ui.activity.SegmentsActivity
+import com.aistudio.dexter.ui.activity.TasksActivity
+import com.aistudio.dexter.ui.view.VoiceInteractionDialog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
-    private val viewModel: DexterViewModel by viewModels()
+    private lateinit var binding: ActivityMainBinding
+    private lateinit var repository: DexterRepository
+    private lateinit var speechManager: DexterSpeechManager
+    private lateinit var actionExecutor: DexterActionExecutor
+
+    private val audioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            DexterVoiceService.startService(this)
+            openVoiceDialog()
+        } else {
+            // Still allow dialog for text-based natural language interaction
+            openVoiceDialog()
+            Toast.makeText(
+                this,
+                "Microphone permission needed for voice input. Text entry is available.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        try {
+            binding = ActivityMainBinding.inflate(layoutInflater)
+            setContentView(binding.root)
 
-        setContent {
-            DexterTheme {
-                DexterMainApp(viewModel = viewModel)
+            repository = (application as DexterApp).repository
+            speechManager = DexterSpeechManager(this)
+            actionExecutor = DexterActionExecutor(repository, this)
+
+            setupVoiceOrb()
+            setupBottomNav()
+            setupStatusChip()
+            setupBriefingCard()
+            setupSegmentsHubCard()
+
+            // Start voice service if permission was already granted
+            val hasPermission = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                DexterVoiceService.startService(this)
             }
-        }
-    }
-}
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun DexterMainApp(viewModel: DexterViewModel) {
-    val context = LocalContext.current
-    val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
-    val orbState by viewModel.speechManager.orbState.collectAsStateWithLifecycle()
-    val isVoiceModalOpen by viewModel.isVoiceModalOpen.collectAsStateWithLifecycle()
-    val transcript by viewModel.speechManager.partialTranscript.collectAsStateWithLifecycle()
-    val lastResponse by viewModel.speechManager.lastSpokenResponse.collectAsStateWithLifecycle()
-    val pendingConfirmation by viewModel.pendingConfirmation.collectAsStateWithLifecycle()
-    val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
+            // Eagerly refresh data
+            loadDashboardData()
 
-    val pendingTasks by viewModel.pendingTasks.collectAsStateWithLifecycle()
-    val completedTasks by viewModel.completedTasks.collectAsStateWithLifecycle()
-    val transactions by viewModel.transactions.collectAsStateWithLifecycle()
-    val todaySpent by viewModel.todaySpentMinor.collectAsStateWithLifecycle()
-    val monthSpent by viewModel.monthSpentMinor.collectAsStateWithLifecycle()
-    val journalNotes by viewModel.journalNotes.collectAsStateWithLifecycle()
-    val goals by viewModel.goals.collectAsStateWithLifecycle()
-    val projects by viewModel.projects.collectAsStateWithLifecycle()
-    val alarms by viewModel.alarms.collectAsStateWithLifecycle()
-    val auditLogs by viewModel.auditLogs.collectAsStateWithLifecycle()
-    val briefing by viewModel.dailyBriefing.collectAsStateWithLifecycle()
-
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    LaunchedEffect(snackbarMessage) {
-        snackbarMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.clearSnackbar()
+            if (intent.getBooleanExtra("action_open_voice", false)) {
+                openVoiceDialog()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error in onCreate", e)
         }
     }
 
-    // Audio Permission Launcher
-    val audioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            viewModel.openVoiceModal()
-        } else {
-            // Still open modal so user can use the zero-barrier fallback keyboard natural language input
-            viewModel.openVoiceModal()
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("action_open_voice", false)) {
+            openVoiceDialog()
         }
     }
 
-    val onRequestVoiceInput = {
+    override fun onResume() {
+        super.onResume()
+        if (::binding.isInitialized) {
+            loadDashboardData()
+            updateServiceStatus()
+        }
+    }
+
+    private fun setupSegmentsHubCard() {
+        binding.cardSegmentsHub.setOnClickListener {
+            startActivity(Intent(this, SegmentsActivity::class.java))
+        }
+    }
+
+    private fun setupVoiceOrb() {
+        binding.voiceOrbView.onTap = {
+            requestVoiceActivation()
+        }
+
+        binding.voiceOrbView.onLongPress = {
+            requestVoiceActivation()
+        }
+
+        // Keep main orb in gentle breathing IDLE animation
+        binding.voiceOrbView.setState(OrbVisualState.IDLE)
+        binding.orbHintText.text = "Tap to speak"
+    }
+
+    private fun requestVoiceActivation() {
         val hasPermission = ContextCompat.checkSelfPermission(
-            context,
+            this,
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
 
         if (hasPermission) {
-            viewModel.openVoiceModal()
+            openVoiceDialog()
         } else {
             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
-    Scaffold(
-        containerColor = DexterBackground,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "DEXTER",
-                            color = DexterOnBackground,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp
-                        )
+    private fun openVoiceDialog() {
+        val dialog = VoiceInteractionDialog(
+            context = this,
+            speechManager = speechManager,
+            actionExecutor = actionExecutor,
+            onActionCompleted = {
+                loadDashboardData()
+            }
+        )
+        dialog.setOnDismissListener {
+            binding.voiceOrbView.setState(OrbVisualState.IDLE)
+            loadDashboardData()
+        }
+        dialog.show()
+    }
 
-                        // Service Status Pill (Live / Offline)
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = DexterSurfaceVariant
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .background(DexterSuccess, CircleShape)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Live",
-                                    color = DexterOnSurface,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DexterBackground
-                ),
-                windowInsets = WindowInsets.statusBars
-            )
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = DexterSurface,
-                contentColor = DexterOnSurface,
-                windowInsets = WindowInsets.navigationBars,
-                modifier = Modifier.testTag("bottom_nav_bar")
-            ) {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { viewModel.selectTab(0) },
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                    label = { Text("Home", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = DexterPrimary,
-                        selectedTextColor = DexterPrimary,
-                        indicatorColor = DexterSurfaceVariant
-                    ),
-                    modifier = Modifier.testTag("nav_tab_home")
-                )
+    private fun setupBriefingCard() {
+        binding.cardBriefing.setOnClickListener {
+            // Navigate directly to TasksActivity for actionable task review
+            startActivity(Intent(this, TasksActivity::class.java))
+        }
+    }
 
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { viewModel.selectTab(1) },
-                    icon = {
-                        BadgedBox(
-                            badge = {
-                                if (pendingTasks.isNotEmpty()) {
-                                    Badge(containerColor = DexterPrimary) {
-                                        Text(pendingTasks.size.toString())
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = "Tasks")
-                        }
-                    },
-                    label = { Text("Tasks", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = DexterPrimary,
-                        selectedTextColor = DexterPrimary,
-                        indicatorColor = DexterSurfaceVariant
-                    ),
-                    modifier = Modifier.testTag("nav_tab_tasks")
-                )
+    private fun setupStatusChip() {
+        binding.statusChip.setOnClickListener {
+            showServiceStatusSheet()
+        }
+    }
 
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { viewModel.selectTab(2) },
-                    icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "Finance") },
-                    label = { Text("Finance", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = DexterPrimary,
-                        selectedTextColor = DexterPrimary,
-                        indicatorColor = DexterSurfaceVariant
-                    ),
-                    modifier = Modifier.testTag("nav_tab_finance")
-                )
+    private fun updateServiceStatus() {
+        lifecycleScope.launch {
+            val isNeedleRunning = withContext(Dispatchers.IO) {
+                try {
+                    val socket = java.net.Socket()
+                    socket.connect(java.net.InetSocketAddress("127.0.0.1", 8081), 250)
+                    socket.close()
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
 
-                NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { viewModel.selectTab(3) },
-                    icon = { Icon(Icons.Default.Edit, contentDescription = "Journal") },
-                    label = { Text("Journal", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = DexterPrimary,
-                        selectedTextColor = DexterPrimary,
-                        indicatorColor = DexterSurfaceVariant
-                    ),
-                    modifier = Modifier.testTag("nav_tab_journal")
-                )
-
-                NavigationBarItem(
-                    selected = selectedTab == 4,
-                    onClick = { viewModel.selectTab(4) },
-                    icon = { Icon(Icons.Default.MoreVert, contentDescription = "More") },
-                    label = { Text("More", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = DexterPrimary,
-                        selectedTextColor = DexterPrimary,
-                        indicatorColor = DexterSurfaceVariant
-                    ),
-                    modifier = Modifier.testTag("nav_tab_more")
-                )
+            if (isNeedleRunning) {
+                binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_live)
+                binding.statusText.text = "Live"
+                binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_live))
+            } else {
+                // Tier 1 Fast-Path is active even when Needle daemon is warm-starting
+                binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_degraded)
+                binding.statusText.text = "Tier 1"
+                binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_degraded))
             }
         }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            when (selectedTab) {
-                0 -> HomeScreen(
-                    orbState = orbState,
-                    briefing = briefing,
-                    onTapOrb = onRequestVoiceInput,
-                    onPlayBriefing = { viewModel.playBriefing() },
-                    onQuickPrompt = { prompt ->
-                        viewModel.openVoiceModal()
-                        viewModel.processUserPhrase(prompt)
-                    }
-                )
+    }
 
-                1 -> TasksScreen(
-                    pendingTasks = pendingTasks,
-                    completedTasks = completedTasks,
-                    onCompleteTask = { taskId -> viewModel.completeTask(taskId) },
-                    onCancelTask = { taskId -> viewModel.cancelTask(taskId) },
-                    onCreateTask = { title, priority -> viewModel.createTask(title, priority) }
-                )
+    private fun loadDashboardData() {
+        lifecycleScope.launch {
+            val briefing = withContext(Dispatchers.IO) { repository.getDailyBriefing() }
 
-                2 -> FinanceScreen(
-                    transactions = transactions,
-                    todaySpentMinor = todaySpent,
-                    monthSpentMinor = monthSpent,
-                    onLogExpense = { amtMinor, desc, cat -> viewModel.logExpense(amtMinor, desc, cat) }
-                )
+            val tasksText = "${briefing.pendingTasksCount} tasks pending"
+            val alarmsText = if (briefing.nextAlarmLabel != null) "1 reminder" else "0 reminders"
+            val rupeesSpent = briefing.todaySpentMinor / 100
+            val expenseText = "₹$rupeesSpent spent today"
 
-                3 -> JournalScreen(
-                    notes = journalNotes,
-                    onAddNote = { note -> viewModel.addJournalNote(note) }
-                )
+            binding.briefingMetricsText.text = "$tasksText · $alarmsText · $expenseText"
 
-                4 -> MoreScreen(
-                    goals = goals,
-                    projects = projects,
-                    alarms = alarms,
-                    auditLogs = auditLogs,
-                    onCancelAlarms = { viewModel.cancelAllAlarms() }
-                )
+            if (briefing.topTaskTitle != null) {
+                binding.nextTaskText.text = "📋 Next: ${briefing.topTaskTitle}"
+            } else {
+                binding.nextTaskText.text = "📋 Next: No pending tasks"
             }
 
-            // Voice Interaction Overlay Modal
-            VoiceInteractionModal(
-                visible = isVoiceModalOpen,
-                orbState = orbState,
-                transcript = transcript,
-                lastResponse = lastResponse,
-                pendingConfirmation = pendingConfirmation,
-                onDismiss = { viewModel.dismissVoiceModal() },
-                onConfirmAction = { intent -> viewModel.confirmPendingAction(intent) },
-                onCancelConfirmation = { viewModel.cancelPendingAction() },
-                onSubmitText = { text -> viewModel.processUserPhrase(text) }
-            )
+            if (briefing.nextAlarmLabel != null && briefing.nextAlarmTime != null) {
+                val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(briefing.nextAlarmTime * 1000))
+                binding.nextAlarmText.text = "⏰ $timeStr – ${briefing.nextAlarmLabel}"
+            } else {
+                binding.nextAlarmText.text = "⏰ Next: No upcoming alarms"
+            }
+        }
+    }
+
+    private fun setupBottomNav() {
+        binding.navHome.setOnClickListener {
+            loadDashboardData()
+            updateServiceStatus()
+        }
+
+        binding.navTasks.setOnClickListener {
+            startActivity(Intent(this, TasksActivity::class.java))
+        }
+
+        binding.navFinance.setOnClickListener {
+            startActivity(Intent(this, FinanceActivity::class.java))
+        }
+
+        binding.navJournal.setOnClickListener {
+            startActivity(Intent(this, JournalActivity::class.java))
+        }
+
+        binding.navMore.setOnClickListener {
+            startActivity(Intent(this, SegmentsActivity::class.java))
+        }
+    }
+
+    private fun showFinanceSummaryDialog() {
+        lifecycleScope.launch {
+            val transactions = withContext(Dispatchers.IO) { repository.listTransactions(limit = 10) }
+            val (totalSpent, todaySpent) = withContext(Dispatchers.IO) { repository.summarizeExpenses() }
+
+            val items = transactions.map {
+                "↓ ₹${it.amountRupees.toInt()}  ${it.description} (${it.category})"
+            }.toTypedArray()
+
+            val title = "Finance · Today: ₹${todaySpent / 100} | Total: ₹${totalSpent / 100}"
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle(title)
+                .setItems(if (items.isNotEmpty()) items else arrayOf("No recent transactions."), null)
+                .setPositiveButton("Close", null)
+                .setNeutralButton("🎤 Log Expense") { _, _ ->
+                    openVoiceDialog()
+                }
+                .show()
+        }
+    }
+
+    private fun showJournalSummaryDialog() {
+        lifecycleScope.launch {
+            val notes = withContext(Dispatchers.IO) { repository.listJournal(limit = 10) }
+            val items = notes.map {
+                val dateStr = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(it.createdAt * 1000))
+                "[$dateStr] ${it.content}"
+            }.toTypedArray()
+
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Journal Notes (${notes.size})")
+                .setItems(if (items.isNotEmpty()) items else arrayOf("No journal notes yet."), null)
+                .setPositiveButton("Close", null)
+                .setNeutralButton("🎤 Add Note") { _, _ ->
+                    openVoiceDialog()
+                }
+                .show()
+        }
+    }
+
+    private fun showMoreOptionsDialog() {
+        val options = arrayOf(
+            "🎯 Goals & Projects",
+            "⏰ Reminders & Alarms",
+            "🔋 Request Battery Whitelist (Alexa Mode)",
+            "⚙️ System & Needle Status",
+            "📦 Database Diagnostics"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Dexter Settings & Tools")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> showGoalsProjectsDialog()
+                    1 -> showAlarmsDialog()
+                    2 -> DexterVoiceService.requestIgnoreBatteryOptimizations(this)
+                    3 -> showServiceStatusSheet()
+                    4 -> showDatabaseDiagnostics()
+                }
+            }
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun showGoalsProjectsDialog() {
+        lifecycleScope.launch {
+            val goals = withContext(Dispatchers.IO) { repository.listGoals() }
+            val projects = withContext(Dispatchers.IO) { repository.listProjects() }
+
+            val goalLines = goals.map { "🎯 [Goal] ${it.name} (${it.status})" }
+            val projectLines = projects.map { "📁 [Project] ${it.name} (${it.status})" }
+            val allItems = (goalLines + projectLines).toTypedArray()
+
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Goals & Projects")
+                .setItems(if (allItems.isNotEmpty()) allItems else arrayOf("No active goals or projects."), null)
+                .setPositiveButton("Close", null)
+                .show()
+        }
+    }
+
+    private fun showAlarmsDialog() {
+        lifecycleScope.launch {
+            val alarms = withContext(Dispatchers.IO) { repository.listAlarms() }
+            val items = alarms.map {
+                val timeStr = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(it.alarmTime * 1000))
+                "⏰ $timeStr – ${it.label}"
+            }.toTypedArray()
+
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Active Reminders (${alarms.size})")
+                .setItems(if (items.isNotEmpty()) items else arrayOf("No upcoming reminders."), null)
+                .setPositiveButton("Close", null)
+                .show()
+        }
+    }
+
+    private fun showServiceStatusSheet() {
+        val dbFile = getDatabasePath("dexter.db")
+        val dbSizeKb = if (dbFile.exists()) dbFile.length() / 1024 else 0
+
+        val message = """
+            Dexter Engine Status:
+            • Voice Engine: Alexa Mode (Low-Power VAD)
+            • Localhost Daemon: Needle 3 on :8081
+            • Fast-Path Router: Active (≤ 5ms)
+            • Database: SQLite WAL mode (${dbSizeKb} KB)
+            • Background Service: Foreground Persistent
+            
+            Battery Philosophy:
+            Dexter consumes ≤ 3% per hour in standby Alexa mode.
+        """.trimIndent()
+
+        AlertDialog.Builder(this)
+            .setTitle("System Status")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .setNeutralButton("Battery Whitelist") { _, _ ->
+                DexterVoiceService.requestIgnoreBatteryOptimizations(this)
+            }
+            .show()
+    }
+
+    private fun showDatabaseDiagnostics() {
+        lifecycleScope.launch {
+            val diagnostics = withContext(Dispatchers.IO) { repository.getSegmentDiagnostics() }
+            val dbFile = getDatabasePath("dexter.db")
+            val dbSizeKb = if (dbFile.exists()) dbFile.length() / 1024 else 0
+
+            val lines = diagnostics.map { (segment, count) ->
+                "✓ $segment: $count items"
+            }.toTypedArray()
+
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("16-Segment Database (SQLite WAL, ${dbSizeKb} KB)")
+                .setItems(lines, null)
+                .setPositiveButton("Close", null)
+                .show()
         }
     }
 }

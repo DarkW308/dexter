@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Core Dexter Dark Theme Colors -->
+    <color name="dexter_background">#1A1A2E</color>
+    <color name="dexter_surface">#252540</color>
+    <color name="dexter_surface_variant">#2E2E50</color>
+    <color name="dexter_surface_card">#202038</color>
+
+    <!-- Accent & Glow Colors -->
+    <color name="dexter_primary">#4FC3F7</color>
+    <color name="dexter_primary_glow">#00E5FF</color>
+    <color name="dexter_on_primary">#000000</color>
+
+    <!-- Text & Content Colors -->
+    <color name="dexter_on_background">#FFFFFF</color>
+    <color name="dexter_on_surface">#E0E0E0</color>
+    <color name="dexter_on_surface_variant">#9E9E9E</color>
+
+    <!-- Feedback & Priority Colors -->
+    <color name="dexter_error">#CF6679</color>
+    <color name="dexter_warning">#FFAB40</color>
+    <color name="dexter_success">#69F0AE</color>
+
+    <color name="dexter_priority_critical">#FF1744</color>
+    <color name="dexter_priority_high">#FF6D00</color>
+    <color name="dexter_priority_normal">#4FC3F7</color>
+    <color name="dexter_priority_low">#546E7A</color>
+
+    <!-- Service Status Dot Colors -->
+    <color name="status_live">#69F0AE</color>
+    <color name="status_degraded">#FFAB40</color>
+    <color name="status_offline">#CF6679</color>
+
+    <!-- Transparent Overlays -->
+    <color name="dexter_modal_scrim">#E61A1A2E</color>
+    <color name="dexter_card_stroke">#334FC3F7</color>
+</resources>

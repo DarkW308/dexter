@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base Dexter Dark Theme -->
+    <style name="Theme.Dexter" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/dexter_primary</item>
+        <item name="colorSecondary">@color/dexter_primary_glow</item>
+        <item name="android:statusBarColor">@color/dexter_background</item>
+        <item name="android:navigationBarColor">@color/dexter_background</item>
+        <item name="android:windowBackground">@color/dexter_background</item>
+        <item name="colorSurface">@color/dexter_surface</item>
+        <item name="colorOnSurface">@color/dexter_on_surface</item>
+        <item name="colorOnBackground">@color/dexter_on_background</item>
+    </style>
+
+    <!-- Fullscreen Voice Interaction Dialog Theme -->
+    <style name="Theme.Dexter.Dialog.FullScreen" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/dexter_modal_scrim</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:statusBarColor">@color/dexter_background</item>
+        <item name="android:navigationBarColor">@color/dexter_background</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
+    </style>
+
+    <!-- Card and Surface Component Styles -->
+    <style name="DexterCard">
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:padding">16dp</item>
+    </style>
+
+    <!-- Button Styles -->
+    <style name="DexterButton.Primary" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">@color/dexter_primary</item>
+        <item name="android:textColor">@color/dexter_on_primary</item>
+        <item name="cornerRadius">24dp</item>
+    </style>
+
+    <style name="DexterButton.Outlined" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="strokeColor">@color/dexter_primary</item>
+        <item name="android:textColor">@color/dexter_primary</item>
+        <item name="cornerRadius">24dp</item>
+    </style>
+
+    <style name="DexterButton.Cancel" parent="Widget.MaterialComponents.Button.TextButton">
+        <item name="android:textColor">@color/dexter_on_surface_variant</item>
+    </style>
+</resources>
