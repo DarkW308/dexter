@@ -16,8 +16,8 @@ venv/
 *.bak
 *.log
 
-# Dexter Local Data & DBs
-data/
+# Dexter Local Data & DBs (root data directory only)
+/data/
 *.db
 *.db-wal
 *.db-shm
