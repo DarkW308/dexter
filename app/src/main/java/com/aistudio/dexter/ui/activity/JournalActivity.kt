@@ -13,6 +13,8 @@ import com.aistudio.dexter.engine.DexterSpeechManager
 import com.aistudio.dexter.ui.screens.JournalScreen
 import com.aistudio.dexter.ui.theme.DexterTheme
 import com.aistudio.dexter.ui.view.VoiceInteractionDialog
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -44,8 +46,8 @@ class JournalActivity : ComponentActivity() {
 
         setContent {
             DexterTheme {
-                val notes = notesState.value
-                val (totalEntries, streak, totalWords) = statsState.value
+                val notes by notesState.collectAsState()
+                val (totalEntries, streak, totalWords) = statsState.collectAsState().value
 
                 JournalScreen(
                     notes = notes,

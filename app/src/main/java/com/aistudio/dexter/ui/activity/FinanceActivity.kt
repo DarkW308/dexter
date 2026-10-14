@@ -13,6 +13,8 @@ import com.aistudio.dexter.engine.DexterSpeechManager
 import com.aistudio.dexter.ui.screens.FinanceScreen
 import com.aistudio.dexter.ui.theme.DexterTheme
 import com.aistudio.dexter.ui.view.VoiceInteractionDialog
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -49,13 +51,13 @@ class FinanceActivity : ComponentActivity() {
 
         setContent {
             DexterTheme {
-                val transactions = transactionsState.value
-                val netBalance = balanceState.value
-                val totalCredits = creditsState.value
-                val totalDebits = debitsState.value
-                val todaySpent = todaySpentState.value
-                val monthSpent = monthSpentState.value
-                val categoryBreakdown = categoryBreakdownState.value
+                val transactions by transactionsState.collectAsState()
+                val netBalance by balanceState.collectAsState()
+                val totalCredits by creditsState.collectAsState()
+                val totalDebits by debitsState.collectAsState()
+                val todaySpent by todaySpentState.collectAsState()
+                val monthSpent by monthSpentState.collectAsState()
+                val categoryBreakdown by categoryBreakdownState.collectAsState()
 
                 FinanceScreen(
                     transactions = transactions,

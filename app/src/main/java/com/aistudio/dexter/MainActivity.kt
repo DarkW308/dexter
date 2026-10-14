@@ -123,7 +123,7 @@ class MainActivity : AppCompatActivity() {
 
         // Keep main orb in gentle breathing IDLE animation
         binding.voiceOrbView.setState(OrbVisualState.IDLE)
-        binding.orbHintText.text = "Tap to speak"
+        binding.orbHintText.text = "Tap orb to speak or test voice commands"
     }
 
     private fun requestVoiceActivation() {
@@ -240,46 +240,6 @@ class MainActivity : AppCompatActivity() {
 
         binding.navMore.setOnClickListener {
             startActivity(Intent(this, SegmentsActivity::class.java))
-        }
-    }
-
-    private fun showFinanceSummaryDialog() {
-        lifecycleScope.launch {
-            val transactions = withContext(Dispatchers.IO) { repository.listTransactions(limit = 10) }
-            val (totalSpent, todaySpent) = withContext(Dispatchers.IO) { repository.summarizeExpenses() }
-
-            val items = transactions.map {
-                "↓ ₹${it.amountRupees.toInt()}  ${it.description} (${it.category})"
-            }.toTypedArray()
-
-            val title = "Finance · Today: ₹${todaySpent / 100} | Total: ₹${totalSpent / 100}"
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle(title)
-                .setItems(if (items.isNotEmpty()) items else arrayOf("No recent transactions."), null)
-                .setPositiveButton("Close", null)
-                .setNeutralButton("🎤 Log Expense") { _, _ ->
-                    openVoiceDialog()
-                }
-                .show()
-        }
-    }
-
-    private fun showJournalSummaryDialog() {
-        lifecycleScope.launch {
-            val notes = withContext(Dispatchers.IO) { repository.listJournal(limit = 10) }
-            val items = notes.map {
-                val dateStr = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(it.createdAt * 1000))
-                "[$dateStr] ${it.content}"
-            }.toTypedArray()
-
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle("Journal Notes (${notes.size})")
-                .setItems(if (items.isNotEmpty()) items else arrayOf("No journal notes yet."), null)
-                .setPositiveButton("Close", null)
-                .setNeutralButton("🎤 Add Note") { _, _ ->
-                    openVoiceDialog()
-                }
-                .show()
         }
     }
 

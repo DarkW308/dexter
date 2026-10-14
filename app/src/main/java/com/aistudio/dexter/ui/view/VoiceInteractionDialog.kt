@@ -103,6 +103,29 @@ class VoiceInteractionDialog(
                 false
             }
         }
+
+        // Quick Command Action Chips
+        binding.chipDailyBriefing.setOnClickListener {
+            processUserText("Daily briefing")
+        }
+        binding.chipExpense.setOnClickListener {
+            processUserText("Spent 350 on lunch")
+        }
+        binding.chipTask.setOnClickListener {
+            processUserText("Create task Review architecture")
+        }
+        binding.chipReminder.setOnClickListener {
+            processUserText("Remind me at 5 PM to call team")
+        }
+        binding.chipDiary.setOnClickListener {
+            processUserText("Note: Deep work session on Dexter")
+        }
+        binding.chipSummary.setOnClickListener {
+            processUserText("Summarize expenses")
+        }
+        binding.chipShowTasks.setOnClickListener {
+            processUserText("Pending tasks")
+        }
     }
 
     private fun observeSpeechState() {
@@ -112,7 +135,11 @@ class VoiceInteractionDialog(
                 binding.dialogVoiceOrb.setState(state)
                 when (state) {
                     OrbVisualState.IDLE -> {
-                        binding.stateLabel.text = "Tap orb to speak"
+                        if (!speechManager.isRecognitionAvailable()) {
+                            binding.stateLabel.text = "Voice Ready"
+                        } else {
+                            binding.stateLabel.text = "Tap orb to speak"
+                        }
                         binding.audioIndicator.visibility = View.GONE
                     }
                     OrbVisualState.LISTENING -> {
@@ -158,6 +185,14 @@ class VoiceInteractionDialog(
 
         speechManager.onSpeechResult = { recognizedText ->
             processUserText(recognizedText)
+        }
+
+        speechManager.onSpeechError = { errorMsg ->
+            dialogScope.launch(Dispatchers.Main) {
+                binding.stateLabel.text = "Voice Assistant Ready"
+                binding.transcriptText.text = errorMsg
+                binding.audioIndicator.visibility = View.GONE
+            }
         }
     }
 

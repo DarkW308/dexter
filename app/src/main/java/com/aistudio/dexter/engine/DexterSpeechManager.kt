@@ -38,6 +38,7 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
     val lastSpokenResponse: StateFlow<String> = _lastSpokenResponse.asStateFlow()
 
     var onSpeechResult: ((String) -> Unit)? = null
+    var onSpeechError: ((String) -> Unit)? = null
 
     init {
         try {
@@ -79,6 +80,10 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
         _orbState.value = state
     }
 
+    fun isRecognitionAvailable(): Boolean {
+        return SpeechRecognizer.isRecognitionAvailable(context)
+    }
+
     fun speak(text: String) {
         _lastSpokenResponse.value = text
         if (isTtsInitialized && tts != null) {
@@ -104,70 +109,97 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
         // Barge-in: if Dexter is speaking, silence him immediately
         stopSpeaking()
 
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            _orbState.value = OrbVisualState.IDLE
+            val msg = "Speech recognizer is not installed on this emulator. You can tap the command chips below or type instructions directly."
+            Log.w("DexterSpeech", msg)
+            onSpeechError?.invoke(msg)
+            return
+        }
+
         _orbState.value = OrbVisualState.LISTENING
         _partialTranscript.value = ""
 
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
-            try {
-                if (speechRecognizer == null) {
-                    speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
-                }
-
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                }
-
-                speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-                    override fun onReadyForSpeech(params: Bundle?) {
-                        _orbState.value = OrbVisualState.LISTENING
-                    }
-
-                    override fun onBeginningOfSpeech() {}
-                    override fun onRmsChanged(rmsdB: Float) {}
-                    override fun onBufferReceived(buffer: ByteArray?) {}
-                    override fun onEndOfSpeech() {
-                        _orbState.value = OrbVisualState.PROCESSING
-                    }
-
-                    override fun onError(error: Int) {
-                        Log.w("DexterSpeech", "Speech recognition error: $error")
-                        _orbState.value = OrbVisualState.IDLE
-                    }
-
-                    override fun onResults(results: Bundle?) {
-                        _orbState.value = OrbVisualState.PROCESSING
-                        val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        val text = matches?.firstOrNull() ?: ""
-                        _partialTranscript.value = text
-                        val cleaned = filterHallucinations(text)
-                        if (cleaned.isNotBlank()) {
-                            onSpeechResult?.invoke(cleaned)
-                        } else {
-                            _orbState.value = OrbVisualState.IDLE
-                        }
-                    }
-
-                    override fun onPartialResults(partialResults: Bundle?) {
-                        val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        matches?.firstOrNull()?.let {
-                            _partialTranscript.value = it
-                        }
-                    }
-
-                    override fun onEvent(eventType: Int, params: Bundle?) {}
-                })
-
-                speechRecognizer?.startListening(intent)
-            } catch (e: Exception) {
-                Log.e("DexterSpeech", "Error starting SpeechRecognizer", e)
-                _orbState.value = OrbVisualState.IDLE
+        try {
+            if (speechRecognizer == null) {
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
             }
-        } else {
-            Log.w("DexterSpeech", "Speech recognition not available on this device; ready for text input")
+
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            }
+
+            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    _orbState.value = OrbVisualState.LISTENING
+                }
+
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {
+                    _orbState.value = OrbVisualState.PROCESSING
+                }
+
+                override fun onError(error: Int) {
+                    val message = when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH -> "No speech recognized. Speak closer to the microphone or tap a sample command below."
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Listening timed out. Tap orb to try again or tap a sample command below."
+                        SpeechRecognizer.ERROR_AUDIO -> "Audio recording issue. Tap a sample command or type your command below."
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission required. Please grant permission."
+                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER ->
+                            "Voice network service unavailable on emulator. You can tap sample commands or type below."
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Voice recognizer was busy. Ready to listen again."
+                        else -> "Speech recognition error ($error). Tap a sample command below to test immediately."
+                    }
+                    Log.w("DexterSpeech", "Speech recognition error $error: $message")
+                    _orbState.value = OrbVisualState.IDLE
+                    onSpeechError?.invoke(message)
+                }
+
+                override fun onResults(results: Bundle?) {
+                    _orbState.value = OrbVisualState.PROCESSING
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val text = matches?.firstOrNull() ?: ""
+                    _partialTranscript.value = text
+                    val cleaned = filterHallucinations(text)
+                    if (cleaned.isNotBlank()) {
+                        onSpeechResult?.invoke(cleaned)
+                    } else {
+                        _orbState.value = OrbVisualState.IDLE
+                        onSpeechError?.invoke("No clear speech detected. Try again or tap a command below.")
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    matches?.firstOrNull()?.let {
+                        _partialTranscript.value = it
+                    }
+                }
+
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+
+            speechRecognizer?.startListening(intent)
+        } catch (e: Exception) {
+            Log.e("DexterSpeech", "Error starting SpeechRecognizer", e)
             _orbState.value = OrbVisualState.IDLE
+            onSpeechError?.invoke("Could not start speech recognizer: ${e.message}. Use sample commands below.")
+        }
+    }
+
+    fun shutdown() {
+        try {
+            speechRecognizer?.destroy()
+            speechRecognizer = null
+            tts?.shutdown()
+            tts = null
+        } catch (e: Exception) {
+            Log.e("DexterSpeech", "Error shutting down speech engine", e)
         }
     }
 
@@ -189,11 +221,5 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
         )
         if (hallucinatoryPhrases.contains(lower)) return ""
         return text.trim()
-    }
-
-    fun shutdown() {
-        stopSpeaking()
-        tts?.shutdown()
-        speechRecognizer?.destroy()
     }
 }

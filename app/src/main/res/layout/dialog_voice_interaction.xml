@@ -151,6 +151,107 @@
         android:layout_alignParentBottom="true"
         android:orientation="vertical">
 
+        <!-- Quick Voice Simulation / Suggestion Chips -->
+        <TextView
+            android:id="@+id/chipsLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="Tap to speak or tap a command to test instantly:"
+            android:textColor="@color/dexter_on_surface_variant"
+            android:textSize="12sp" />
+
+        <HorizontalScrollView
+            android:id="@+id/chipsScrollView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/chipDailyBriefing"
+                    style="@style/DexterButton.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="8dp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:text="⚡ Daily Briefing"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/chipExpense"
+                    style="@style/DexterButton.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="8dp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:text="💳 Spent 350 on lunch"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/chipTask"
+                    style="@style/DexterButton.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="8dp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:text="📋 Create task Review architecture"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/chipReminder"
+                    style="@style/DexterButton.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="8dp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:text="⏰ Remind me at 5 PM to call team"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/chipDiary"
+                    style="@style/DexterButton.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="8dp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:text="📖 Note: Deep work day"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/chipSummary"
+                    style="@style/DexterButton.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="8dp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:text="💰 Summarize expenses"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/chipShowTasks"
+                    style="@style/DexterButton.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:text="📋 Pending tasks"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+        </HorizontalScrollView>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
