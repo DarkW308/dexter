@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import com.aistudio.dexter.data.db.DexterDatabaseHelper
 import com.aistudio.dexter.data.model.Priority
+import com.aistudio.dexter.data.model.TaskCounts
 import com.aistudio.dexter.data.model.TaskItem
 import com.aistudio.dexter.data.model.TaskStatus
 
@@ -12,53 +13,75 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper) 
 
     constructor(context: Context) : this(DexterDatabaseHelper.getInstance(context))
 
+    fun getTaskById(taskId: Long): TaskItem? {
+        val db = readableDb
+        val cursor = db.rawQuery(
+            "SELECT id, title, priority, project_id, status, due_at, scheduled_start, scheduled_end, estimated_duration_seconds, completion_source, created_at, notes, category FROM tasks WHERE id = ?",
+            arrayOf(taskId.toString())
+        )
+        cursor.use {
+            if (it.moveToFirst()) {
+                return parseTaskCursor(it)
+            }
+        }
+        return null
+    }
+
     fun createTask(
         title: String,
         priority: Priority = Priority.NORMAL,
-        category: String = "General",
-        estimatedMinutes: Int = 15,
-        deadline: Long? = null,
         projectId: Long? = null,
         dueAt: Long? = null,
         scheduledStart: Long? = null,
         scheduledEnd: Long? = null,
         durationSeconds: Long? = null,
-        actorType: String = "USER"
+        actorType: String = "USER",
+        notes: String = "",
+        category: String = "General"
     ): TaskItem {
         val db = writableDb
-        val now = System.currentTimeMillis() / 1000
-        val effectiveDeadline = deadline ?: dueAt ?: scheduledEnd
-        val effectiveMinutes = if (durationSeconds != null && durationSeconds > 0) (durationSeconds / 60).toInt() else estimatedMinutes
+        val now = System.currentTimeMillis()
+        val values = ContentValues().apply {
+            put("title", title.trim())
+            put("priority", priority.name)
+            if (projectId != null) put("project_id", projectId)
+            put("status", "PENDING")
+            if (dueAt != null && dueAt > 0) put("due_at", dueAt)
+            if (scheduledStart != null && scheduledStart > 0) put("scheduled_start", scheduledStart)
+            if (scheduledEnd != null && scheduledEnd > 0) put("scheduled_end", scheduledEnd)
+            if (durationSeconds != null && durationSeconds > 0) put("estimated_duration_seconds", durationSeconds)
+            put("created_at", now)
+            put("notes", notes)
+            put("category", category)
+        }
 
         db.beginTransaction()
-        return try {
-            val cv = ContentValues().apply {
-                put("title", title.trim())
-                put("priority", priority.name)
-                put("status", TaskStatus.PENDING.name)
-                put("category", category)
-                put("estimated_minutes", effectiveMinutes)
-                if (effectiveDeadline != null) put("deadline", effectiveDeadline)
+        try {
+            val id = db.insertOrThrow("tasks", null, values)
+            val occValues = ContentValues().apply {
+                put("task_id", id)
+                put("status", "SCHEDULED")
+                put("scheduled_start", scheduledStart ?: now)
+                put("scheduled_end", scheduledEnd ?: (now + (durationSeconds ?: 1800) * 1000))
                 put("created_at", now)
             }
-            val id = db.insertOrThrow("tasks", null, cv)
-
-            val occurrenceCv = ContentValues().apply {
-                put("task_id", id)
-                put("status", TaskStatus.PENDING.name)
-                put("occurred_at", now)
-            }
-            db.insert("task_occurrences", null, occurrenceCv)
-
+            db.insert("task_occurrences", null, occValues)
             db.setTransactionSuccessful()
-            TaskItem(
+
+            return TaskItem(
                 id = id,
                 title = title.trim(),
                 priority = priority,
+                projectId = projectId,
                 status = TaskStatus.PENDING,
+                dueAt = dueAt,
+                dueTimestamp = dueAt,
+                scheduledStart = scheduledStart,
+                scheduledEnd = scheduledEnd,
+                estimatedDurationSeconds = durationSeconds,
+                durationSeconds = durationSeconds,
+                notes = notes,
                 category = category,
-                estimatedMinutes = effectiveMinutes,
-                deadline = effectiveDeadline,
                 createdAt = now
             )
         } finally {
@@ -66,148 +89,140 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper) 
         }
     }
 
-    fun listPendingTasks(limit: Int = 100): List<TaskItem> {
-        val list = mutableListOf<TaskItem>()
-        val db = readableDb
-        val cursor = db.rawQuery(
-            """
-            SELECT id, title, priority, status, category, estimated_minutes, deadline, created_at, completed_at
-            FROM tasks
-            WHERE status != 'COMPLETED' AND status != 'CANCELLED'
-            ORDER BY 
-                CASE priority 
-                    WHEN 'CRITICAL' THEN 1 
-                    WHEN 'HIGH' THEN 2 
-                    WHEN 'NORMAL' THEN 3 
-                    WHEN 'LOW' THEN 4 
-                    ELSE 5 
-                END,
-                created_at DESC
-            LIMIT ?
-            """,
-            arrayOf(limit.toString())
+    fun createTask(
+        title: String,
+        priority: Priority,
+        dueTimestamp: Long,
+        notes: String,
+        category: String
+    ): TaskItem {
+        return createTask(
+            title = title,
+            priority = priority,
+            projectId = null,
+            dueAt = dueTimestamp,
+            scheduledStart = null,
+            scheduledEnd = null,
+            durationSeconds = null,
+            actorType = "USER",
+            notes = notes,
+            category = category
         )
-        while (cursor.moveToNext()) {
-            list.add(mapRowToTask(cursor))
-        }
-        cursor.close()
-        return list
     }
 
-    fun listCompletedTasks(limit: Int = 50): List<TaskItem> {
-        val list = mutableListOf<TaskItem>()
-        val db = readableDb
-        val cursor = db.rawQuery(
-            """
-            SELECT id, title, priority, status, category, estimated_minutes, deadline, created_at, completed_at
-            FROM tasks
-            WHERE status = 'COMPLETED'
-            ORDER BY completed_at DESC, created_at DESC
-            LIMIT ?
-            """,
-            arrayOf(limit.toString())
-        )
-        while (cursor.moveToNext()) {
-            list.add(mapRowToTask(cursor))
-        }
-        cursor.close()
-        return list
-    }
-
-    fun getTaskById(id: Long): TaskItem? {
-        val db = readableDb
-        val cursor = db.rawQuery(
-            "SELECT id, title, priority, status, category, estimated_minutes, deadline, created_at, completed_at FROM tasks WHERE id = ?",
-            arrayOf(id.toString())
-        )
-        return try {
-            if (cursor.moveToFirst()) mapRowToTask(cursor) else null
-        } finally {
-            cursor.close()
-        }
-    }
-
-    fun completeTask(id: Long, completionSource: String = "DEXTER_RECORDED", actorType: String = "USER"): Boolean {
+    fun completeTask(
+        taskId: Long,
+        completionSource: String = "DEXTER_RECORDED",
+        actorType: String = "USER"
+    ): Boolean {
         val db = writableDb
-        val now = System.currentTimeMillis() / 1000
-        val cv = ContentValues().apply {
-            put("status", TaskStatus.COMPLETED.name)
-            put("completed_at", now)
+        val values = ContentValues().apply {
+            put("status", "COMPLETED")
+            put("completion_source", completionSource)
         }
-        val affected = db.update("tasks", cv, "id = ?", arrayOf(id.toString()))
-        return affected > 0
+        val rows = db.update("tasks", values, "id = ?", arrayOf(taskId.toString()))
+        if (rows > 0) {
+            val occValues = ContentValues().apply {
+                put("status", "COMPLETED")
+                put("completed_at", System.currentTimeMillis())
+            }
+            db.update("task_occurrences", occValues, "task_id = ?", arrayOf(taskId.toString()))
+        }
+        return rows > 0
     }
 
-    fun cancelTask(id: Long, actorType: String = "USER"): Boolean {
+    fun userReportTaskCompletion(taskId: Long): Boolean {
+        return completeTask(taskId, completionSource = "USER_REPORTED", actorType = "USER")
+    }
+
+    fun cancelTask(taskId: Long, actorType: String = "USER"): Boolean {
         val db = writableDb
-        val cv = ContentValues().apply {
-            put("status", TaskStatus.CANCELLED.name)
+        val values = ContentValues().apply {
+            put("status", "CANCELLED")
         }
-        val affected = db.update("tasks", cv, "id = ?", arrayOf(id.toString()))
-        return affected > 0
+        val rows = db.update("tasks", values, "id = ?", arrayOf(taskId.toString()))
+        if (rows > 0) {
+            val occValues = ContentValues().apply {
+                put("status", "CANCELLED")
+            }
+            db.update("task_occurrences", occValues, "task_id = ?", arrayOf(taskId.toString()))
+        }
+        return rows > 0
     }
 
     fun completeAllTasks(actorType: String = "USER"): Int {
         val db = writableDb
-        val now = System.currentTimeMillis() / 1000
-        val cv = ContentValues().apply {
-            put("status", TaskStatus.COMPLETED.name)
-            put("completed_at", now)
+        val values = ContentValues().apply {
+            put("status", "COMPLETED")
+            put("completion_source", "DEXTER_RECORDED")
         }
-        return db.update("tasks", cv, "status != 'COMPLETED' AND status != 'CANCELLED'", null)
+        return db.update("tasks", values, "status = 'PENDING'", null)
     }
 
-    fun updateTaskPriority(id: Long, priority: Priority): Boolean {
-        val db = writableDb
-        val cv = ContentValues().apply {
-            put("priority", priority.name)
+    fun listPendingTasks(limit: Int = 100): List<TaskItem> {
+        val list = mutableListOf<TaskItem>()
+        val db = readableDb
+        val cursor = db.rawQuery(
+            "SELECT id, title, priority, project_id, status, due_at, scheduled_start, scheduled_end, estimated_duration_seconds, completion_source, created_at, notes, category FROM tasks WHERE status = 'PENDING' ORDER BY CASE priority WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'NORMAL' THEN 3 ELSE 4 END, id DESC LIMIT ?",
+            arrayOf(limit.toString())
+        )
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(parseTaskCursor(it))
+            }
         }
-        return db.update("tasks", cv, "id = ?", arrayOf(id.toString())) > 0
+        return list
     }
 
-    fun deleteTask(id: Long): Boolean {
-        val db = writableDb
-        return db.delete("tasks", "id = ?", arrayOf(id.toString())) > 0
-    }
-
-    fun userReportTaskCompletion(taskId: Long): Boolean {
-        return completeTask(taskId, completionSource = "USER_REPORT", actorType = "USER")
-    }
-
-    fun userReportTaskCompletion(titleSnippet: String): TaskItem? {
-        val pending = listPendingTasks(50)
-        val matched = pending.find { it.title.contains(titleSnippet, ignoreCase = true) }
-            ?: pending.firstOrNull()
-        if (matched != null) {
-            completeTask(matched.id, completionSource = "USER_REPORT", actorType = "USER")
-            return getTaskById(matched.id)
+    fun listCompletedTasks(limit: Int = 100): List<TaskItem> {
+        val list = mutableListOf<TaskItem>()
+        val db = readableDb
+        val cursor = db.rawQuery(
+            "SELECT id, title, priority, project_id, status, due_at, scheduled_start, scheduled_end, estimated_duration_seconds, completion_source, created_at, notes, category FROM tasks WHERE status = 'COMPLETED' ORDER BY id DESC LIMIT ?",
+            arrayOf(limit.toString())
+        )
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(parseTaskCursor(it))
+            }
         }
-        return null
+        return list
     }
 
-    private fun mapRowToTask(cursor: Cursor): TaskItem {
-        val id = cursor.getLong(cursor.getColumnIndexOrThrow("id"))
-        val title = cursor.getString(cursor.getColumnIndexOrThrow("title"))
-        val priorityStr = cursor.getString(cursor.getColumnIndexOrThrow("priority"))
-        val statusStr = cursor.getString(cursor.getColumnIndexOrThrow("status"))
-        val category = cursor.getString(cursor.getColumnIndexOrThrow("category"))
-        val estimated = cursor.getInt(cursor.getColumnIndexOrThrow("estimated_minutes"))
-        val deadlineCol = cursor.getColumnIndex("deadline")
-        val deadline = if (deadlineCol != -1 && !cursor.isNull(deadlineCol)) cursor.getLong(deadlineCol) else null
-        val createdAt = cursor.getLong(cursor.getColumnIndexOrThrow("created_at"))
-        val compCol = cursor.getColumnIndex("completed_at")
-        val completedAt = if (compCol != -1 && !cursor.isNull(compCol)) cursor.getLong(compCol) else null
+    fun getTaskCounts(): TaskCounts {
+        val db = readableDb
+        var pending = 0
+        var completed = 0
 
+        val cursor = db.rawQuery("SELECT status, COUNT(*) FROM tasks GROUP BY status", null)
+        cursor.use {
+            while (it.moveToNext()) {
+                val status = it.getString(0) ?: ""
+                val count = it.getInt(1)
+                if (status == "PENDING") pending = count
+                else if (status == "COMPLETED") completed = count
+            }
+        }
+        return TaskCounts(pending = pending, completed = completed, total = pending + completed)
+    }
+
+    private fun parseTaskCursor(cursor: Cursor): TaskItem {
         return TaskItem(
-            id = id,
-            title = title,
-            priority = Priority.fromString(priorityStr),
-            status = TaskStatus.fromString(statusStr),
-            category = category,
-            estimatedMinutes = estimated,
-            deadline = deadline,
-            createdAt = createdAt,
-            completedAt = completedAt
+            id = cursor.getLong(0),
+            title = cursor.getString(1) ?: "",
+            priority = Priority.fromString(cursor.getString(2) ?: "NORMAL"),
+            projectId = if (cursor.isNull(3)) null else cursor.getLong(3),
+            status = TaskStatus.fromString(cursor.getString(4) ?: "PENDING"),
+            dueAt = if (cursor.isNull(5)) null else cursor.getLong(5),
+            dueTimestamp = if (cursor.isNull(5)) null else cursor.getLong(5),
+            scheduledStart = if (cursor.isNull(6)) null else cursor.getLong(6),
+            scheduledEnd = if (cursor.isNull(7)) null else cursor.getLong(7),
+            estimatedDurationSeconds = if (cursor.isNull(8)) null else cursor.getLong(8),
+            durationSeconds = if (cursor.isNull(8)) null else cursor.getLong(8),
+            completionSource = if (cursor.isNull(9)) null else cursor.getString(9),
+            createdAt = cursor.getLong(10),
+            notes = cursor.getString(11) ?: "",
+            category = cursor.getString(12) ?: "General"
         )
     }
 }

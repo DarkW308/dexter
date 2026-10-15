@@ -10,46 +10,42 @@ class AuditRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper)
 
     constructor(context: Context) : this(DexterDatabaseHelper.getInstance(context))
 
-    fun logAction(action: String, details: String, entityType: String = "SYSTEM"): Long {
+    fun logAction(
+        action: String,
+        details: String = "",
+        actorType: String = "USER"
+    ): Long {
         val db = writableDb
-        val now = System.currentTimeMillis() / 1000
-
-        val cv = ContentValues().apply {
-            put("action", action.trim())
-            put("details", details.trim())
+        val now = System.currentTimeMillis()
+        val values = ContentValues().apply {
+            put("action", action)
+            put("details", details)
             put("timestamp", now)
+            put("actor_type", actorType)
         }
-        return db.insert("audit_logs", null, cv)
+        return db.insert("audit", null, values)
     }
 
-    fun listRecentLogs(limit: Int = 100): List<AuditLog> {
+    fun listRecentLogs(limit: Int = 50): List<AuditLog> {
         val list = mutableListOf<AuditLog>()
         val db = readableDb
         val cursor = db.rawQuery(
-            "SELECT id, action, details, timestamp FROM audit_logs ORDER BY timestamp DESC, id DESC LIMIT ?",
+            "SELECT id, action, details, timestamp, actor_type FROM audit ORDER BY timestamp DESC LIMIT ?",
             arrayOf(limit.toString())
         )
-        while (cursor.moveToNext()) {
-            list.add(mapRowToAudit(cursor))
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(
+                    AuditLog(
+                        id = it.getLong(0),
+                        action = it.getString(1) ?: "",
+                        details = it.getString(2) ?: "",
+                        timestamp = it.getLong(3),
+                        actorType = it.getString(4) ?: "USER"
+                    )
+                )
+            }
         }
-        cursor.close()
         return list
-    }
-
-    private fun mapRowToAudit(cursor: Cursor): AuditLog {
-        val id = cursor.getLong(cursor.getColumnIndexOrThrow("id"))
-        val action = cursor.getString(cursor.getColumnIndexOrThrow("action"))
-        val details = cursor.getString(cursor.getColumnIndexOrThrow("details"))
-        val timestamp = cursor.getLong(cursor.getColumnIndexOrThrow("timestamp"))
-        return AuditLog(
-            id = id,
-            action = action,
-            details = details,
-            actionType = action,
-            entityType = "SYSTEM",
-            message = details,
-            timestamp = timestamp,
-            createdAt = timestamp
-        )
     }
 }

@@ -27,6 +27,7 @@ class VoiceInteractionDialog(
     private lateinit var binding: DialogVoiceInteractionBinding
     private val dialogScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var pendingDestructiveAction: ActionContract? = null
+    private var silenceHintJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,6 +106,9 @@ class VoiceInteractionDialog(
         }
 
         // Quick Command Action Chips
+        binding.chipTraveling.setOnClickListener {
+            processUserText("spent 45 in traveling")
+        }
         binding.chipDailyBriefing.setOnClickListener {
             processUserText("Daily briefing")
         }
@@ -135,6 +139,7 @@ class VoiceInteractionDialog(
                 binding.dialogVoiceOrb.setState(state)
                 when (state) {
                     OrbVisualState.IDLE -> {
+                        silenceHintJob?.cancel()
                         if (!speechManager.isRecognitionAvailable()) {
                             binding.stateLabel.text = "Voice Ready"
                         } else {
@@ -146,17 +151,31 @@ class VoiceInteractionDialog(
                         binding.stateLabel.text = "Listening..."
                         binding.audioIndicator.visibility = View.VISIBLE
                         binding.audioIndicator.text = "● REC"
+
+                        // In web/streaming emulators, microphone audio from the host browser
+                        // often cannot reach the guest OS. Detect silence and guide the user.
+                        silenceHintJob?.cancel()
+                        silenceHintJob = dialogScope.launch {
+                            delay(3500)
+                            if (speechManager.orbState.value == OrbVisualState.LISTENING) {
+                                binding.stateLabel.text = "Listening... (Microphone quiet)"
+                                binding.transcriptText.text = "Microphone quiet or unlinked in browser emulator.\nTap '🚗 spent 45 in traveling' or type below to test live!"
+                            }
+                        }
                     }
                     OrbVisualState.PROCESSING -> {
+                        silenceHintJob?.cancel()
                         binding.stateLabel.text = "Processing..."
                         binding.audioIndicator.visibility = View.VISIBLE
                         binding.audioIndicator.text = "⚙ BUSY"
                     }
                     OrbVisualState.SPEAKING -> {
+                        silenceHintJob?.cancel()
                         binding.stateLabel.text = "Speaking..."
                         binding.audioIndicator.visibility = View.GONE
                     }
                     OrbVisualState.ERROR -> {
+                        silenceHintJob?.cancel()
                         binding.stateLabel.text = "Something went wrong"
                         binding.audioIndicator.visibility = View.GONE
                     }
@@ -262,6 +281,7 @@ class VoiceInteractionDialog(
     }
 
     override fun dismiss() {
+        silenceHintJob?.cancel()
         speechManager.stopListening()
         speechManager.stopSpeaking()
         speechManager.setVisualState(OrbVisualState.IDLE)

@@ -6,405 +6,463 @@ import android.database.Cursor
 import com.aistudio.dexter.data.db.DexterDatabaseHelper
 import com.aistudio.dexter.data.model.*
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import java.util.Calendar
 
 class DexterRepository(context: Context) {
 
     private val dbHelper = DexterDatabaseHelper.getInstance(context)
 
-    val taskRepo = TaskRepository(dbHelper)
-    val financeRepo = FinanceRepository(dbHelper)
-    val alarmRepo = AlarmRepository(dbHelper)
-    val journalRepo = JournalRepository(dbHelper)
-    val auditRepo = AuditRepository(dbHelper)
+    val tasks: TaskRepository = TaskRepository(dbHelper)
+    val finance: FinanceRepository = FinanceRepository(dbHelper)
+    val alarms: AlarmRepository = AlarmRepository(dbHelper)
+    val journal: JournalRepository = JournalRepository(dbHelper)
+    val audit: AuditRepository = AuditRepository(dbHelper)
 
-    val dataRevision = Companion.dataRevision
+    val dataRevision: SharedFlow<Long>
+        get() = Companion.dataRevision
 
-    fun getAuditLogs(limit: Int = 100): List<AuditLog> = auditRepo.listRecentLogs(limit)
-
-    companion object {
-        private val _dataRevision = MutableSharedFlow<Long>(extraBufferCapacity = 64)
-        val dataRevision = _dataRevision.asSharedFlow()
-
-        fun notifyDataChanged() {
-            _dataRevision.tryEmit(System.currentTimeMillis())
-        }
-    }
-
-    private fun postChange() {
-        notifyDataChanged()
-    }
-
-    // --- Tasks ---
+    // Task convenience methods
     fun createTask(
         title: String,
         priority: Priority = Priority.NORMAL,
-        category: String = "General",
-        estimatedMinutes: Int = 15,
-        deadline: Long? = null
+        dueTimestamp: Long = 0L,
+        notes: String = "",
+        category: String = "General"
     ): TaskItem {
-        val item = taskRepo.createTask(title, priority, category, estimatedMinutes, deadline)
-        auditRepo.logAction("CREATE_TASK", "Task '${item.title}' created")
-        postChange()
-        return item
+        val task = tasks.createTask(title, priority, dueTimestamp, notes, category)
+        notifyDataChanged()
+        return task
     }
 
-    fun listPendingTasks(limit: Int = 100): List<TaskItem> = taskRepo.listPendingTasks(limit)
-    fun listCompletedTasks(limit: Int = 50): List<TaskItem> = taskRepo.listCompletedTasks(limit)
-    fun getTaskById(id: Long): TaskItem? = taskRepo.getTaskById(id)
-
-    fun completeTask(id: Long): Boolean {
-        val result = taskRepo.completeTask(id)
-        if (result) {
-            auditRepo.logAction("COMPLETE_TASK", "Task #$id marked completed")
-            postChange()
-        }
+    fun completeTask(taskId: Long): Boolean {
+        val result = tasks.completeTask(taskId)
+        if (result) notifyDataChanged()
         return result
     }
 
-    fun userReportTaskCompletion(titleSnippet: String): TaskItem? {
-        val item = taskRepo.userReportTaskCompletion(titleSnippet)
-        if (item != null) {
-            auditRepo.logAction("COMPLETE_TASK", "Task '${item.title}' marked completed")
-            postChange()
-        }
-        return item
-    }
-
-    fun cancelTask(id: Long): Boolean {
-        val result = taskRepo.cancelTask(id)
-        if (result) {
-            auditRepo.logAction("CANCEL_TASK", "Task #$id cancelled")
-            postChange()
-        }
+    fun cancelTask(taskId: Long): Boolean {
+        val result = tasks.cancelTask(taskId)
+        if (result) notifyDataChanged()
         return result
     }
 
-    fun completeAllTasks(): Int {
-        val count = taskRepo.completeAllTasks()
-        if (count > 0) {
-            auditRepo.logAction("COMPLETE_ALL_TASKS", "$count tasks completed")
-            postChange()
-        }
-        return count
-    }
+    fun listPendingTasks(limit: Int = 50): List<TaskItem> = tasks.listPendingTasks(limit)
 
-    fun updateTaskPriority(id: Long, priority: Priority): Boolean {
-        val result = taskRepo.updateTaskPriority(id, priority)
-        if (result) {
-            auditRepo.logAction("UPDATE_PRIORITY", "Task #$id set to ${priority.name}")
-            postChange()
-        }
-        return result
-    }
+    fun listCompletedTasks(limit: Int = 50): List<TaskItem> = tasks.listCompletedTasks(limit)
 
-    fun deleteTask(id: Long): Boolean {
-        val result = taskRepo.deleteTask(id)
-        if (result) postChange()
-        return result
-    }
+    fun getTaskCounts(): TaskCounts = tasks.getTaskCounts()
 
-    // --- Finance ---
+    // Finance convenience methods
     fun logTransaction(
         amountMinor: Long,
         desc: String,
-        type: String = "DEBIT",
-        category: String = "General",
+        type: String,
+        category: String,
         paymentMode: String = "UPI",
-        referenceId: String = ""
+        actorType: String = "USER"
     ): FinanceTransaction {
-        val tx = financeRepo.logTransaction(amountMinor, desc, type, category, paymentMode, referenceId)
-        auditRepo.logAction("LOG_TRANSACTION", "${tx.type} ₹${tx.amountRupees}: ${tx.description}")
-        postChange()
+        val tx = finance.logTransaction(
+            amountMinor = amountMinor,
+            desc = desc,
+            type = type,
+            category = category,
+            paymentMode = paymentMode,
+            actorType = actorType
+        )
+        notifyDataChanged()
         return tx
     }
 
-    fun logExpense(amountMinor: Long, desc: String, category: String = "General"): FinanceTransaction {
-        val tx = financeRepo.logExpense(amountMinor, desc, category)
-        auditRepo.logAction("LOG_EXPENSE", "₹${tx.amountRupees}: ${tx.description}")
-        postChange()
-        return tx
+    fun logExpense(
+        amountMinor: Long,
+        desc: String,
+        category: String,
+        paymentMode: String = "UPI"
+    ): FinanceTransaction {
+        return logTransaction(
+            amountMinor = amountMinor,
+            desc = desc,
+            type = "DEBIT",
+            category = category,
+            paymentMode = paymentMode,
+            actorType = "USER"
+        )
     }
-
-    fun listTransactions(limit: Int = 100): List<FinanceTransaction> = financeRepo.listTransactions(limit)
 
     fun deleteTransaction(id: Long): Boolean {
-        val result = financeRepo.deleteTransaction(id)
-        if (result) postChange()
-        return result
+        val db = dbHelper.writableDatabase
+        val rows = db.delete("finance_transactions", "id = ?", arrayOf(id.toString()))
+        if (rows > 0) notifyDataChanged()
+        return rows > 0
     }
 
-    fun summarizeExpenses(): Pair<Long, Long> = financeRepo.summarizeExpenses()
-    fun getFinanceStatement(): Triple<Long, Long, Long> = financeRepo.getFinanceStatement()
-    fun getFinanceCategoryBreakdown(): Map<String, Long> = financeRepo.getFinanceCategoryBreakdown()
+    fun listTransactions(limit: Int = 100): List<FinanceTransaction> = finance.listTransactions(limit)
 
-    // --- Alarms ---
-    fun createAlarm(alarmTime: Long, label: String, repeatDays: String = "DAILY"): AlarmItem {
-        val item = alarmRepo.createAlarm(alarmTime, label, repeatDays)
-        auditRepo.logAction("CREATE_ALARM", "Alarm '${item.label}' set")
-        postChange()
-        return item
+    fun getFinanceStatement(): Triple<Long, Long, Long> {
+        return Triple(finance.getNetBalance(), finance.getTotalInflow(), finance.getTotalOutflow())
     }
 
-    fun queryPendingAlarms(limit: Int = 50): List<AlarmItem> = alarmRepo.queryPendingAlarms(limit)
-    fun listAlarms(limit: Int = 50): List<AlarmItem> = alarmRepo.listAlarms(limit)
+    fun summarizeExpenses(): Pair<Long, Long> = finance.summarizeExpenses()
 
-    fun cancelAlarms(id: Long? = null): Int {
-        val count = alarmRepo.cancelAlarms(id)
-        if (count > 0) {
-            auditRepo.logAction("CANCEL_ALARMS", "$count alarms cancelled")
-            postChange()
-        }
+    fun getFinanceCategoryBreakdown(): Map<String, Long> = finance.getCategoryBreakdown()
+
+    fun getFinanceBalance(): Long = finance.getNetBalance()
+
+    fun getFinanceInflow(): Long = finance.getTotalInflow()
+
+    fun getFinanceOutflow(): Long = finance.getTotalOutflow()
+
+    // Alarm convenience methods
+    fun createAlarm(alarmTime: Long, label: String): Long {
+        val alarm = alarms.createAlarm(alarmTime, label)
+        notifyDataChanged()
+        return alarm.id
+    }
+
+    fun listAlarms(limit: Int = 20): List<AlarmItem> = alarms.listAlarms(limit)
+
+    fun cancelAlarms(actorType: String = "USER"): Int {
+        val count = alarms.cancelAlarms(actorType)
+        if (count > 0) notifyDataChanged()
         return count
     }
 
-    fun deleteAlarm(id: Long): Boolean {
-        val result = alarmRepo.deleteAlarm(id)
-        if (result) postChange()
-        return result
-    }
-
-    // --- Journal ---
+    // Journal convenience methods
     fun logJournal(
         content: String,
         title: String = "",
-        mood: String = "Reflective",
+        mood: String = "Calm",
         category: String = "Reflections",
-        source: String = "VOICE"
+        source: String = "APP",
+        actorType: String = "USER"
     ): JournalEntry {
-        val entry = journalRepo.logJournal(content, title, mood, category, source)
-        auditRepo.logAction("LOG_JOURNAL", "Diary entry added (${entry.wordCount} words)")
-        postChange()
+        val entry = journal.logJournal(
+            content = content,
+            title = title,
+            mood = mood,
+            category = category,
+            source = source,
+            actorType = actorType
+        )
+        notifyDataChanged()
         return entry
     }
-
-    fun insertNote(content: String, source: String = "VOICE"): JournalEntry {
-        val entry = journalRepo.insertNote(content, source)
-        postChange()
-        return entry
-    }
-
-    fun listJournal(limit: Int = 100): List<JournalEntry> = journalRepo.listJournal(limit)
-    fun listNotes(limit: Int = 100): List<JournalEntry> = journalRepo.listNotes(limit)
 
     fun deleteJournal(id: Long): Boolean {
-        val result = journalRepo.deleteJournal(id)
-        if (result) postChange()
-        return result
+        val db = dbHelper.writableDatabase
+        val rows = db.delete("journal_entries", "id = ?", arrayOf(id.toString()))
+        if (rows > 0) notifyDataChanged()
+        return rows > 0
     }
 
-    fun getJournalStats(): Triple<Int, Int, Int> = journalRepo.getJournalStats()
+    fun insertNote(
+        title: String,
+        content: String,
+        mood: String = "Calm",
+        category: String = "General"
+    ): Long {
+        val id = journal.insertNote(title, content, mood, category)
+        notifyDataChanged()
+        return id
+    }
 
-    // --- Goals ---
-    fun createGoal(name: String, targetValue: Double = 100.0, unit: String = "%"): GoalItem {
+    fun listNotes(limit: Int = 50): List<JournalEntry> = journal.listNotes(limit)
+
+    fun listJournal(limit: Int = 100): List<JournalEntry> = journal.listNotes(limit)
+
+    fun getJournalStats(): Triple<Int, Int, Int> {
+        val all = journal.listNotes(100)
+        return Triple(all.size, journal.getWritingStreakDays(), journal.getWordCountToday())
+    }
+
+    // Goals & Projects
+    fun createGoal(name: String, targetDate: Long = 0L): GoalItem {
         val db = dbHelper.writableDatabase
-        val now = System.currentTimeMillis() / 1000
-        val cv = ContentValues().apply {
-            put("name", name.trim())
-            put("target_value", targetValue)
-            put("current_value", 0.0)
-            put("unit", unit)
-            put("status", "ACTIVE")
-            put("created_at", now)
+        val values = ContentValues().apply {
+            put("title", name.trim())
+            put("target_date", targetDate)
+            put("progress_percent", 0)
+            put("status", "IN_PROGRESS")
         }
-        val id = db.insertOrThrow("goals", null, cv)
-        auditRepo.logAction("CREATE_GOAL", "Goal '$name' created")
-        postChange()
-        return GoalItem(id = id, name = name.trim(), targetValue = targetValue, unit = unit, createdAt = now)
+        val id = db.insert("goals", null, values)
+        notifyDataChanged()
+        return GoalItem(
+            id = id,
+            name = name.trim(),
+            title = name.trim(),
+            targetDate = targetDate,
+            progressPercent = 0,
+            status = "IN_PROGRESS"
+        )
     }
 
     fun listGoals(): List<GoalItem> {
         val list = mutableListOf<GoalItem>()
         val db = dbHelper.readableDatabase
-        val cursor = db.rawQuery(
-            "SELECT id, name, target_value, current_value, unit, status, deadline, created_at FROM goals ORDER BY created_at DESC",
+        val cursor: Cursor = db.rawQuery(
+            "SELECT id, title, target_date, progress_percent, status FROM goals ORDER BY id DESC",
             null
         )
-        while (cursor.moveToNext()) {
-            val id = cursor.getLong(0)
-            val name = cursor.getString(1)
-            val target = cursor.getDouble(2)
-            val current = cursor.getDouble(3)
-            val unit = cursor.getString(4)
-            val status = cursor.getString(5)
-            val deadline = if (!cursor.isNull(6)) cursor.getLong(6) else null
-            val createdAt = cursor.getLong(7)
-            list.add(
-                GoalItem(
-                    id = id,
-                    name = name,
-                    targetValue = target,
-                    currentValue = current,
-                    unit = unit,
-                    status = status,
-                    priority = Priority.NORMAL,
-                    deadline = deadline,
-                    createdAt = createdAt
+        cursor.use {
+            while (it.moveToNext()) {
+                val title = it.getString(1) ?: ""
+                list.add(
+                    GoalItem(
+                        id = it.getLong(0),
+                        name = title,
+                        title = title,
+                        targetDate = it.getLong(2),
+                        progressPercent = it.getInt(3),
+                        status = it.getString(4) ?: "IN_PROGRESS"
+                    )
                 )
-            )
+            }
         }
-        cursor.close()
         return list
     }
 
-    // --- Projects ---
-    fun createProject(name: String, description: String = ""): ProjectItem {
+    fun createProject(name: String, colorHex: String = "#4FC3F7"): ProjectItem {
         val db = dbHelper.writableDatabase
-        val now = System.currentTimeMillis() / 1000
-        val cv = ContentValues().apply {
+        val values = ContentValues().apply {
             put("name", name.trim())
             put("status", "ACTIVE")
-            put("description", description.trim())
-            put("created_at", now)
+            put("color_hex", colorHex)
+            put("task_count", 0)
         }
-        val id = db.insertOrThrow("projects", null, cv)
-        auditRepo.logAction("CREATE_PROJECT", "Project '$name' created")
-        postChange()
-        return ProjectItem(id = id, name = name.trim(), status = "ACTIVE", description = description.trim(), createdAt = now)
+        val id = db.insert("projects", null, values)
+        notifyDataChanged()
+        return ProjectItem(
+            id = id,
+            name = name.trim(),
+            status = "ACTIVE",
+            colorHex = colorHex,
+            taskCount = 0
+        )
     }
 
     fun listProjects(): List<ProjectItem> {
         val list = mutableListOf<ProjectItem>()
         val db = dbHelper.readableDatabase
-        val cursor = db.rawQuery(
-            "SELECT id, name, status, description, created_at FROM projects ORDER BY created_at DESC",
+        val cursor: Cursor = db.rawQuery(
+            "SELECT id, name, status, color_hex, task_count FROM projects ORDER BY id DESC",
             null
         )
-        while (cursor.moveToNext()) {
-            val id = cursor.getLong(0)
-            val name = cursor.getString(1)
-            val status = cursor.getString(2)
-            val desc = cursor.getString(3)
-            val createdAt = cursor.getLong(4)
-            list.add(ProjectItem(id, name, status, desc, createdAt))
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(
+                    ProjectItem(
+                        id = it.getLong(0),
+                        name = it.getString(1) ?: "",
+                        status = it.getString(2) ?: "ACTIVE",
+                        colorHex = it.getString(3) ?: "#4FC3F7",
+                        taskCount = it.getInt(4)
+                    )
+                )
+            }
         }
-        cursor.close()
         return list
     }
 
-    // --- Daily Briefing ---
-    fun getDailyBriefing(): DailyBriefing {
-        val pending = listPendingTasks(10)
-        val alarms = queryPendingAlarms(1)
-        val (todaySpent, _) = summarizeExpenses()
-        val completedToday = listCompletedTasks(50).size
+    // Audit convenience
+    fun getAuditLogs(limit: Int = 50): List<AuditLog> = audit.listRecentLogs(limit)
 
-        return DailyBriefing(
-            pendingTasksCount = pending.size,
-            topTaskTitle = pending.firstOrNull()?.title,
-            nextAlarmTime = alarms.firstOrNull()?.alarmTime,
-            nextAlarmLabel = alarms.firstOrNull()?.label,
-            todaySpentMinor = todaySpent,
-            completedTasksTodayCount = completedToday,
-            unreadJournalCount = 0
-        )
-    }
-
-    // --- 16 Segments Architecture Introspection ---
+    // 16 Segments Architecture Definition
     fun getAllSegments(): List<SegmentInfo> {
         val db = dbHelper.readableDatabase
-
-        fun countTable(table: String): Int {
+        fun count(table: String): Int {
             return try {
-                val cursor = db.rawQuery("SELECT COUNT(*) FROM $table", null)
-                val count = if (cursor.moveToFirst()) cursor.getInt(0) else 0
-                cursor.close()
-                count
-            } catch (e: Exception) {
-                0
-            }
+                val c = db.rawQuery("SELECT COUNT(*) FROM $table", null)
+                c.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+            } catch (e: Exception) { 0 }
         }
 
         return listOf(
-            SegmentInfo(1, "Tasks & Execution", "Core Operations", "📋", "Core task ledger, recurrence schedules, and status tracking", listOf("tasks", "task_occurrences"), countTable("tasks")),
-            SegmentInfo(2, "Occurrences & Kanban", "Core Operations", "⏱", "Historical and recurring task occurrences timeline", listOf("task_occurrences"), countTable("task_occurrences")),
-            SegmentInfo(3, "Schedule & Timeblocks", "Core Operations", "📅", "Day-planning, calendar windows, and agenda events", listOf("schedule_blocks"), countTable("schedule_blocks")),
-            SegmentInfo(4, "Goals & Milestones", "Personal Growth", "🎯", "Long-term outcomes, measurable KPI targets, and deadlines", listOf("goals"), countTable("goals")),
-            SegmentInfo(5, "Projects & Initiatives", "Personal Growth", "📁", "Initiative hubs, sub-tasks, and scope management", listOf("projects"), countTable("projects")),
-            SegmentInfo(6, "Habits & Routines", "Personal Growth", "🔄", "Daily streak habits, cadence counters, and consistency logs", listOf("tasks"), countTable("tasks")),
-            SegmentInfo(7, "Alarms & Reminders", "System Time", "⏰", "Precision alarms, exact timers, and doze-safe wake locks", listOf("alarms"), countTable("alarms")),
-            SegmentInfo(8, "Personal Finance", "Personal Capital", "💳", "Bank statement ledger, expense tracking, and income logs", listOf("finance_accounts", "finance_transactions"), countTable("finance_transactions")),
-            SegmentInfo(9, "Wellbeing & Vitals", "Personal Health", "🌿", "Sleep duration, hydration intake, and body metrics", listOf("wellbeing_metrics"), countTable("wellbeing_metrics")),
-            SegmentInfo(10, "Journal & Diary", "Inner Life", "📖", "Private daily diary, mood tagging, and voice reflections", listOf("journal_entries"), countTable("journal_entries")),
-            SegmentInfo(11, "Knowledge & Second Brain", "Cognition", "💡", "RAG documents, searchable notes, and insights repository", listOf("knowledge_items"), countTable("knowledge_items")),
-            SegmentInfo(12, "Relationships & Rolodex", "Social", "👥", "Key contacts, touchpoint reminders, and personal network", listOf("contacts_rolodex"), countTable("contacts_rolodex")),
-            SegmentInfo(13, "Device & Telemetry", "Hardware", "📱", "Localhost daemon health, battery burn rate, and RAM stats", listOf("sqlite_master"), 1),
-            SegmentInfo(14, "Offline Speech & Voice", "Interface", "🎙", "Tier 1 fast-path grammar, Whisper/Needle runtime status", listOf("sqlite_master"), 1),
-            SegmentInfo(15, "Security & Vault", "Privacy", "🔐", "Local SQLite encryption, zero-cloud sandbox validation", listOf("sqlite_master"), 1),
-            SegmentInfo(16, "Audit Logs & Governance", "Governance", "📜", "Immutable action history, confirmation triggers, and undo log", listOf("audit_logs"), countTable("audit_logs"))
+            SegmentInfo(1, "Executive & Identity", "Core", "👑", "User persona, executive directives, and system permissions", listOf("identity", "user_profile"), count("tasks")),
+            SegmentInfo(2, "Personal Finance", "Finance", "💳", "Ledger, bank transactions, expenses, UPI payments, and budget control", listOf("finance_transactions", "finance_accounts", "budgets"), count("finance_transactions")),
+            SegmentInfo(3, "Task & Execution", "Execution", "✅", "GTD sprint engine, recurring occurrences, and dual-table task tracking", listOf("tasks", "task_occurrences"), count("tasks")),
+            SegmentInfo(4, "Projects", "Execution", "📁", "Initiative hubs, milestones, and high-impact deliverables", listOf("projects", "project_milestones"), count("projects")),
+            SegmentInfo(5, "Goals & Outcomes", "Execution", "🎯", "Quarterly targets, vision boards, and progress percentages", listOf("goals", "goal_targets"), count("goals")),
+            SegmentInfo(6, "Personal Diary & Journal", "Life Tracking", "📖", "Reflections, voice memos, mood telemetry, and daily streaks", listOf("journal_entries", "journal_tags"), count("journal_entries")),
+            SegmentInfo(7, "Alarms & Reminders", "Core", "⏰", "Alarm manager triggers, audio cues, and Doze-resistant timers", listOf("alarms", "reminder_alerts"), count("alarms")),
+            SegmentInfo(8, "Health & Metrics", "Life Tracking", "❤️", "Vitals, workouts, body telemetry, sleep, and nutrition", listOf("health_metrics", "body_stats"), 0),
+            SegmentInfo(9, "Habits & Streaks", "Life Tracking", "⚡", "Daily habit tracking, consistency streaks, and micro-habits", listOf("habits", "habit_logs"), 0),
+            SegmentInfo(10, "Contacts & Network", "Core", "👥", "Key contacts, relationships, and interaction notes", listOf("contacts", "interactions"), 0),
+            SegmentInfo(11, "Reading & Knowledge", "Reflection", "📚", "Books, articles, bookmarks, and synthesis notes", listOf("reading_items", "bookmarks"), 0),
+            SegmentInfo(12, "Inventory & Assets", "Finance", "📦", "Physical assets, warranty tracking, and serial numbers", listOf("inventory_items", "warranty_records"), 0),
+            SegmentInfo(13, "Travel & Itinerary", "Life Tracking", "✈️", "Trips, boarding passes, flight bookings, and itineraries", listOf("trips", "travel_legs"), 0),
+            SegmentInfo(14, "Media & Entertainment", "Reflection", "🎬", "Watchlists, media consumption logs, and podcasts", listOf("media_items", "playlists"), 0),
+            SegmentInfo(15, "Automations & Device", "Core", "⚙️", "Trigger rules, device sensor states, and hardware events", listOf("automation_rules", "device_states"), 0),
+            SegmentInfo(16, "System Audit & Logs", "Core", "🛡️", "Deterministic action ledger, verification audits, and runtime state", listOf("audit", "telemetry_logs"), count("audit"))
         )
     }
 
     fun getSegmentDetails(segmentNumber: Int): List<String> {
-        val db = dbHelper.readableDatabase
         val list = mutableListOf<String>()
-
-        when (segmentNumber) {
-            1 -> {
-                val cursor = db.rawQuery("SELECT id, title, priority, status FROM tasks LIMIT 20", null)
-                while (cursor.moveToNext()) {
-                    list.add("• [${cursor.getString(2)}] ${cursor.getString(1)} (${cursor.getString(3)})")
-                }
-                cursor.close()
-            }
-            7 -> {
-                val cursor = db.rawQuery("SELECT id, label, alarm_time FROM alarms LIMIT 20", null)
-                while (cursor.moveToNext()) {
-                    list.add("• ⏰ ${cursor.getString(1)} (Epoch: ${cursor.getLong(2)})")
-                }
-                cursor.close()
-            }
-            8 -> {
-                val cursor = db.rawQuery("SELECT id, description, amount_minor, type, payment_mode FROM finance_transactions LIMIT 20", null)
-                while (cursor.moveToNext()) {
-                    val sign = if (cursor.getString(3) == "CREDIT") "+" else "-"
-                    val rupees = cursor.getLong(2) / 100.0
-                    list.add("• $sign ₹$rupees | ${cursor.getString(1)} [${cursor.getString(4)}]")
-                }
-                cursor.close()
-            }
-            10 -> {
-                val cursor = db.rawQuery("SELECT id, title, mood, content FROM journal_entries LIMIT 20", null)
-                while (cursor.moveToNext()) {
-                    val t = cursor.getString(1)
-                    val m = cursor.getString(2)
-                    val c = cursor.getString(3)
-                    list.add("• [$m] $t: ${c.take(60)}...")
-                }
-                cursor.close()
-            }
-            16 -> {
-                val cursor = db.rawQuery("SELECT id, action, details FROM audit_logs ORDER BY id DESC LIMIT 20", null)
-                while (cursor.moveToNext()) {
-                    list.add("• [${cursor.getString(1)}] ${cursor.getString(2)}")
-                }
-                cursor.close()
-            }
-            else -> {
-                val segments = getAllSegments()
-                val seg = segments.find { it.segmentNumber == segmentNumber }
-                if (seg != null && seg.allTables.isNotEmpty()) {
-                    val primaryTable = seg.allTables.first()
-                    try {
-                        val cursor = db.rawQuery("SELECT * FROM $primaryTable LIMIT 10", null)
-                        val colCount = cursor.columnCount
-                        while (cursor.moveToNext()) {
-                            val rowDesc = (0 until colCount).joinToString(", ") { i ->
-                                "${cursor.getColumnName(i)}=${cursor.getString(i)}"
-                            }
-                            list.add("• $rowDesc")
+        val db = dbHelper.readableDatabase
+        try {
+            when (segmentNumber) {
+                2 -> {
+                    val cursor = db.rawQuery("SELECT description, type, amount_minor, payment_mode, strftime('%Y-%m-%d %H:%M', created_at / 1000, 'unixepoch') FROM finance_transactions ORDER BY id DESC LIMIT 20", null)
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            val sign = if (it.getString(1).equals("CREDIT", true)) "+" else "-"
+                            list.add("${it.getString(0)} · $sign₹${it.getLong(2) / 100.0} (${it.getString(3)}) · ${it.getString(4)}")
                         }
-                        cursor.close()
-                    } catch (e: Exception) {
-                        list.add("Table $primaryTable ready and operational.")
                     }
                 }
+                3 -> {
+                    val cursor = db.rawQuery("SELECT title, priority, status, category FROM tasks ORDER BY id DESC LIMIT 20", null)
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            list.add("[${it.getString(2)}] ${it.getString(0)} (Priority: ${it.getString(1)}, ${it.getString(3)})")
+                        }
+                    }
+                }
+                4 -> {
+                    val cursor = db.rawQuery("SELECT name, status, task_count FROM projects ORDER BY id DESC LIMIT 20", null)
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            list.add("${it.getString(0)} · Status: ${it.getString(1)} (${it.getInt(2)} tasks)")
+                        }
+                    }
+                }
+                5 -> {
+                    val cursor = db.rawQuery("SELECT title, progress_percent, status FROM goals ORDER BY id DESC LIMIT 20", null)
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            list.add("${it.getString(0)} · ${it.getInt(1)}% (${it.getString(2)})")
+                        }
+                    }
+                }
+                6 -> {
+                    val cursor = db.rawQuery("SELECT title, content, mood, strftime('%Y-%m-%d %H:%M', created_at / 1000, 'unixepoch') FROM journal_entries ORDER BY id DESC LIMIT 20", null)
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            list.add("${it.getString(0)} [${it.getString(2)}]: ${it.getString(1).take(80)} (${it.getString(3)})")
+                        }
+                    }
+                }
+                7 -> {
+                    val cursor = db.rawQuery("SELECT label, alarm_time, is_enabled FROM alarms ORDER BY id DESC LIMIT 20", null)
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            list.add("${it.getString(0)} · Enabled: ${it.getInt(2) == 1}")
+                        }
+                    }
+                }
+                16 -> {
+                    val cursor = db.rawQuery("SELECT action, details, timestamp FROM audit ORDER BY id DESC LIMIT 20", null)
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            list.add("${it.getString(0)}: ${it.getString(1)}")
+                        }
+                    }
+                }
+                else -> {
+                    list.add("Segment #$segmentNumber is provisioned in SQLite. Listening for voice entries.")
+                }
+            }
+        } catch (e: Exception) {
+            list.add("Error loading segment rows: ${e.message}")
+        }
+        return list
+    }
+
+    fun getSegmentDiagnostics(): List<Pair<String, Int>> {
+        return getAllSegments().map { it.title to it.itemCount }
+    }
+
+    // Generic segment fetcher for SegmentDetailActivity
+    fun getSegmentItems(segmentId: String): List<SegmentItem> {
+        val list = mutableListOf<SegmentItem>()
+
+        when (segmentId.lowercase()) {
+            "tasks" -> {
+                tasks.listPendingTasks(50).forEach {
+                    list.add(SegmentItem(it.id, it.title, "Due: ${it.humanDueTime} · ${it.priority}", it.category))
+                }
+            }
+            "finance" -> {
+                finance.listTransactions(50).forEach {
+                    val sign = if (it.type.equals("CREDIT", true)) "+" else "-"
+                    list.add(SegmentItem(it.id, "${it.description} (${sign}${it.formattedAmount})", "${it.paymentMode} · ${it.humanTime}", it.category))
+                }
+            }
+            "journal", "notes" -> {
+                journal.listNotes(50).forEach {
+                    list.add(SegmentItem(it.id, it.title.ifBlank { "Journal Entry" }, it.content, "${it.mood} · ${it.humanTime}"))
+                }
+            }
+            "alarms" -> {
+                alarms.listAlarms(30).forEach {
+                    list.add(SegmentItem(it.id, it.label, it.humanTime, if (it.isEnabled) "ACTIVE" else "OFF"))
+                }
+            }
+            "goals" -> {
+                listGoals().forEach {
+                    list.add(SegmentItem(it.id, it.name, "${it.progressPercent}% Completed", it.status))
+                }
+            }
+            "projects" -> {
+                listProjects().forEach {
+                    list.add(SegmentItem(it.id, it.name, "${it.taskCount} tasks active", it.status))
+                }
+            }
+            else -> {
+                list.add(SegmentItem(1L, "Data for $segmentId", "Database segment active and synchronized with Dexter engine.", "ACTIVE"))
             }
         }
         return list
     }
 
-    fun getSegmentDiagnostics(): Map<String, Int> {
-        return getAllSegments().associate { it.title to it.itemCount }
+    fun getDailyBriefing(): DailyBriefing {
+        val pendingCount = tasks.getTaskCounts().pending
+        val balance = finance.getNetBalance()
+        val alarmsCount = alarms.listAlarms().count { it.isEnabled }
+        val dateString = java.text.SimpleDateFormat("EEEE, MMMM d", java.util.Locale.getDefault()).format(java.util.Date())
+
+        val greeting = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+            in 4..11 -> "Good morning"
+            in 12..16 -> "Good afternoon"
+            else -> "Good evening"
+        }
+
+        val topPriority = tasks.listPendingTasks(3).firstOrNull()?.title
+        val speech = if (pendingCount > 0) {
+            "$greeting. You have $pendingCount tasks pending today. Top priority: ${topPriority ?: "none"}."
+        } else {
+            "$greeting. You have no pending tasks today. All caught up!"
+        }
+
+        return DailyBriefing(
+            greeting = greeting,
+            dateString = dateString,
+            speechText = speech,
+            pendingTasksCount = pendingCount,
+            activeAlarmsCount = alarmsCount,
+            netBalancePaise = balance,
+            topPriorityTask = topPriority,
+            topTaskTitle = topPriority
+        )
+    }
+
+    private fun notifyDataChanged() {
+        _dataRevision.tryEmit(System.currentTimeMillis())
+    }
+
+    companion object {
+        private val _dataRevision = MutableSharedFlow<Long>(extraBufferCapacity = 1)
+        val dataRevision: SharedFlow<Long> = _dataRevision.asSharedFlow()
+
+        @Volatile
+        private var INSTANCE: DexterRepository? = null
+
+        fun getInstance(context: Context): DexterRepository {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: DexterRepository(context.applicationContext).also { INSTANCE = it }
+            }
+        }
     }
 }

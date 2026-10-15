@@ -91,10 +91,16 @@ class DexterActionExecutor(
                     durationSeconds = dur,
                     actorType = action.actorType
                 )
+                val prioritySuffix = if (task.priority != Priority.NORMAL && task.priority != Priority.SOMEDAY) {
+                    " with ${task.priority.name.lowercase().replaceFirstChar { it.uppercase() }} priority"
+                } else ""
+                val dueSuffix = if (task.dueAt != null && task.dueAt > 0) " due ${task.humanDueTime.lowercase()}" else ""
+                val confirmationMsg = "Added task '${task.title}'$prioritySuffix$dueSuffix."
+
                 ActionResult(
                     success = true,
                     intent = "CREATE_TASK",
-                    message = "Created task #${task.id}: '${task.title}'.",
+                    message = confirmationMsg,
                     entityType = "TASK",
                     entityId = task.id,
                     data = mapOf("task" to task)
@@ -209,16 +215,40 @@ class DexterActionExecutor(
                 )
             }
 
-            // 8. LOG_EXPENSE
-            "LOG_EXPENSE" -> {
-                val amount = (action.parameters["amount"] as? Number)?.toDouble() ?: 0.0
-                val amountMinor = (amount * 100).toLong()
+            // 8. LOG_EXPENSE & LOG_TRANSACTION
+            "LOG_EXPENSE", "LOG_TRANSACTION" -> {
+                val amountMinor = (action.parameters["amountMinor"] as? Number)?.toLong()
+                    ?: (((action.parameters["amount"] as? Number)?.toDouble() ?: 0.0) * 100).toLong()
                 val desc = action.parameters["description"] as? String ?: "Expense"
-                val tx = financeRepo.logExpense(amountMinor, desc, actorType = action.actorType)
+                val category = action.parameters["category"] as? String ?: "General"
+                val type = (action.parameters["type"] as? String)?.uppercase() ?: if (intent == "LOG_EXPENSE") "DEBIT" else "CREDIT"
+                val paymentMode = action.parameters["payment_mode"] as? String ?: "UPI"
+
+                val tx = financeRepo.logTransaction(
+                    amountMinor = amountMinor,
+                    desc = desc,
+                    type = type,
+                    category = category,
+                    paymentMode = paymentMode,
+                    actorType = action.actorType
+                )
+
+                val formattedAmount = if (tx.amountRupees % 1.0 == 0.0) {
+                    tx.amountRupees.toInt().toString()
+                } else {
+                    String.format(java.util.Locale.US, "%.2f", tx.amountRupees)
+                }
+
+                val confirmationMsg = if (tx.type == "CREDIT") {
+                    "Recorded income of ₹$formattedAmount for ${tx.description} under ${tx.category}."
+                } else {
+                    "Logged ₹$formattedAmount for ${tx.description} under ${tx.category}."
+                }
+
                 ActionResult(
                     success = true,
-                    intent = "LOG_EXPENSE",
-                    message = "Logged ₹${tx.amountRupees} for ${tx.description}.",
+                    intent = intent,
+                    message = confirmationMsg,
                     entityType = "FINANCE",
                     entityId = tx.id,
                     data = mapOf("transaction" to tx)
@@ -240,11 +270,29 @@ class DexterActionExecutor(
             // 10. LOG_JOURNAL
             "LOG_JOURNAL" -> {
                 val content = action.parameters["content"] as? String ?: ""
-                val entry = journalRepo.insertNote(content, actorType = action.actorType)
+                val title = action.parameters["title"] as? String ?: ""
+                val mood = action.parameters["mood"] as? String ?: "Reflective"
+                val category = action.parameters["category"] as? String ?: "Reflections"
+
+                val entry = journalRepo.logJournal(
+                    content = content,
+                    title = title,
+                    mood = mood,
+                    category = category,
+                    source = "VOICE",
+                    actorType = action.actorType
+                )
+
+                val confirmationMsg = if (category.isNotBlank() && category != "Reflections" && category != "General") {
+                    "Saved diary note under $category."
+                } else {
+                    "Saved diary note with $mood mood."
+                }
+
                 ActionResult(
                     success = true,
                     intent = "LOG_JOURNAL",
-                    message = "Note saved.",
+                    message = confirmationMsg,
                     entityType = "JOURNAL",
                     entityId = entry.id,
                     data = mapOf("entry" to entry)
@@ -393,7 +441,10 @@ class DexterActionExecutor(
         parsedIntent.parameters.forEach { (k, v) ->
             if (k == "taskId") params["task_id"] = v
             else if (k == "amountRupees") params["amount"] = v
-            else if (k == "amountMinor") params["amount"] = (v as Long) / 100.0
+            else if (k == "amountMinor") {
+                params["amountMinor"] = v
+                params["amount"] = (v as Long) / 100.0
+            }
             else params[k] = v
         }
 

@@ -12,6 +12,21 @@ data class ParsedIntent(
     val isNegationOrClarification: Boolean = false
 )
 
+data class FinancialMatch(
+    val amountRupees: Double,
+    val amountMinor: Long,
+    val description: String,
+    val category: String,
+    val type: String = "DEBIT" // DEBIT or CREDIT
+)
+
+data class JournalMatch(
+    val content: String,
+    val title: String,
+    val mood: String,
+    val category: String
+)
+
 object DexterIntentRouter {
 
     fun stripWakeWord(input: String): String {
@@ -108,32 +123,43 @@ object DexterIntentRouter {
             }
         }
 
-        // 7. Finance / Expense Logging
-        val expenseMatch = extractExpense(text)
-        if (expenseMatch != null) {
-            val (amountRupees, desc) = expenseMatch
-            val amountMinor = (amountRupees * 100).toLong()
+        // 7. Finance / Expense & Income Logging
+        val financeMatch = extractFinance(text)
+        if (financeMatch != null) {
             return ParsedIntent(
-                intent = "LOG_EXPENSE",
-                parameters = mapOf("amountMinor" to amountMinor, "description" to desc, "amountRupees" to amountRupees)
+                intent = if (financeMatch.type == "CREDIT") "LOG_TRANSACTION" else "LOG_EXPENSE",
+                parameters = mapOf(
+                    "amountMinor" to financeMatch.amountMinor,
+                    "amountRupees" to financeMatch.amountRupees,
+                    "amount" to financeMatch.amountRupees,
+                    "description" to financeMatch.description,
+                    "category" to financeMatch.category,
+                    "type" to financeMatch.type,
+                    "payment_mode" to "UPI"
+                )
             )
         }
 
         // 8. Finance Summary
-        if (lower.contains("how much did i spend") || lower.contains("total expenses") || lower.contains("my spending") || lower.contains("summarize expenses") || lower.contains("expense summary") || lower.contains("what did i spend")) {
+        if (lower.contains("how much did i spend") || lower.contains("total expenses") || lower.contains("my spending") || lower.contains("summarize expenses") || lower.contains("expense summary") || lower.contains("what did i spend") || lower.contains("how much money")) {
             return ParsedIntent("SUMMARIZE_EXPENSES")
         }
 
         // 9. Journal / Note Logging
-        val noteContent = extractJournalNote(text)
-        if (noteContent != null) {
+        val journalMatch = extractJournalNote(text)
+        if (journalMatch != null) {
             return ParsedIntent(
                 intent = "LOG_JOURNAL",
-                parameters = mapOf("content" to noteContent)
+                parameters = mapOf(
+                    "content" to journalMatch.content,
+                    "title" to journalMatch.title,
+                    "mood" to journalMatch.mood,
+                    "category" to journalMatch.category
+                )
             )
         }
 
-        if (lower.contains("show notes") || lower.contains("read notes") || lower.contains("my notes") || lower.contains("show journal") || lower.contains("what did i journal")) {
+        if (lower.contains("show notes") || lower.contains("read notes") || lower.contains("my notes") || lower.contains("show journal") || lower.contains("what did i journal") || lower.contains("list notes")) {
             return ParsedIntent("LIST_JOURNAL")
         }
 
@@ -215,36 +241,248 @@ object DexterIntentRouter {
                 lower.contains("please don't")
     }
 
-    private fun extractExpense(text: String): Pair<Double, String>? {
-        // e.g. "Spent 350 on lunch", "Paid 1200 for electricity", "500 bucks on groceries", "spent 5k for dinner"
-        val pattern = Pattern.compile("(?:spent|paid|spend|log expense|bought)\\s+(?:rs\\.?|inr|₹)?\\s*(\\d+(?:\\.\\d+)?)\\s*(k|thousand|bucks|rupees)?\\s*(?:on|for|towards)?\\s*(.+)?", Pattern.CASE_INSENSITIVE)
+    /**
+     * Extracts financial transaction (Expense or Income) and automatically classifies
+     * category, payment mode, and minor amounts.
+     */
+    fun extractFinance(text: String): FinancialMatch? {
+        val trimmed = text.trim()
+        val lower = trimmed.lowercase()
+
+        // 1. Check for Income / Credit expressions:
+        // "received 50000 from salary", "got 200 cashback from gpay", "credited 1500 for refund", "earned 3000 consulting"
+        val incomeRegex = Pattern.compile(
+            "^(?:received|got|credited|credit|earned)\\s+(?:rs\\.?|inr|₹)?\\s*(\\d+(?:\\.\\d+)?)\\s*(k|thousand|lakh|bucks|rupees)?\\s*(?:from|for|as|in|towards)?\\s*(.+)?",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mIncome = incomeRegex.matcher(trimmed)
+        if (mIncome.find()) {
+            var rawAmount = mIncome.group(1)?.toDoubleOrNull() ?: return null
+            val unit = mIncome.group(2)?.lowercase() ?: ""
+            if (unit == "k" || unit == "thousand") rawAmount *= 1000.0
+            if (unit == "lakh") rawAmount *= 100000.0
+
+            var desc = mIncome.group(3)?.trim() ?: "Income"
+            desc = desc.replace(Regex("^(?:from|for|as|in|towards)\\s+", RegexOption.IGNORE_CASE), "").trim()
+            if (desc.isBlank()) desc = "Credit"
+
+            val category = inferFinanceCategory(desc, type = "CREDIT")
+            val amountMinor = (rawAmount * 100).toLong()
+            return FinancialMatch(
+                amountRupees = rawAmount,
+                amountMinor = amountMinor,
+                description = desc.replaceFirstChar { it.uppercase() },
+                category = category,
+                type = "CREDIT"
+            )
+        }
+
+        // Explicit "salary of 50000 credited" or "cashback 200 received"
+        val incomeNounRegex = Pattern.compile(
+            "^(salary|cashback|refund|dividend|income)\\s+(?:of\\s+)?(?:rs\\.?|inr|₹)?\\s*(\\d+(?:\\.\\d+)?)\\s*(k|thousand|lakh|bucks|rupees)?\\s*(?:received|credited|got)?",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mNounIncome = incomeNounRegex.matcher(trimmed)
+        if (mNounIncome.find()) {
+            val noun = mNounIncome.group(1)?.trim() ?: "Income"
+            var rawAmount = mNounIncome.group(2)?.toDoubleOrNull() ?: return null
+            val unit = mNounIncome.group(3)?.lowercase() ?: ""
+            if (unit == "k" || unit == "thousand") rawAmount *= 1000.0
+            if (unit == "lakh") rawAmount *= 100000.0
+
+            val category = inferFinanceCategory(noun, type = "CREDIT")
+            val amountMinor = (rawAmount * 100).toLong()
+            return FinancialMatch(
+                amountRupees = rawAmount,
+                amountMinor = amountMinor,
+                description = noun.replaceFirstChar { it.uppercase() },
+                category = category,
+                type = "CREDIT"
+            )
+        }
+
+        // 2. Check for Expense / Debit expressions:
+        // "spent 45 in traveling", "spent 350 on lunch", "paid 1200 for electricity", "bought groceries for 500", "500 bucks on fuel"
+        val expenseRegex = Pattern.compile(
+            "(?:spent|paid|spend|log expense|bought|purchased|deducted)\\s+(?:rs\\.?|inr|₹)?\\s*(\\d+(?:\\.\\d+)?)\\s*(k|thousand|lakh|bucks|rupees)?\\s*(?:on|for|in|towards|at|during)?\\s*(.+)?",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mExpense = expenseRegex.matcher(trimmed)
+        if (mExpense.find()) {
+            var rawAmount = mExpense.group(1)?.toDoubleOrNull() ?: return null
+            val unit = mExpense.group(2)?.lowercase() ?: ""
+            if (unit == "k" || unit == "thousand") rawAmount *= 1000.0
+            if (unit == "lakh") rawAmount *= 100000.0
+
+            var desc = mExpense.group(3)?.trim() ?: "General expense"
+            desc = desc.replace(Regex("^(?:on|for|in|towards|at|during)\\s+", RegexOption.IGNORE_CASE), "").trim()
+            if (desc.isBlank()) desc = "Expense"
+
+            val category = inferFinanceCategory(desc, type = "DEBIT")
+            val amountMinor = (rawAmount * 100).toLong()
+            return FinancialMatch(
+                amountRupees = rawAmount,
+                amountMinor = amountMinor,
+                description = desc.replaceFirstChar { it.uppercase() },
+                category = category,
+                type = "DEBIT"
+            )
+        }
+
+        // "paid electricity 1200" or "paid rent 15000"
+        val paidNounRegex = Pattern.compile(
+            "^(?:paid|spent)\\s+(.+?)\\s+(?:of\\s+|for\\s+|rs\\.?|inr|₹)\\s*(\\d+(?:\\.\\d+)?)\\s*(k|thousand|lakh|bucks|rupees)?$",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mPaidNoun = paidNounRegex.matcher(trimmed)
+        if (mPaidNoun.find()) {
+            var desc = mPaidNoun.group(1)?.trim() ?: "Expense"
+            var rawAmount = mPaidNoun.group(2)?.toDoubleOrNull() ?: return null
+            val unit = mPaidNoun.group(3)?.lowercase() ?: ""
+            if (unit == "k" || unit == "thousand") rawAmount *= 1000.0
+            if (unit == "lakh") rawAmount *= 100000.0
+
+            val category = inferFinanceCategory(desc, type = "DEBIT")
+            val amountMinor = (rawAmount * 100).toLong()
+            return FinancialMatch(
+                amountRupees = rawAmount,
+                amountMinor = amountMinor,
+                description = desc.replaceFirstChar { it.uppercase() },
+                category = category,
+                type = "DEBIT"
+            )
+        }
+
+        // "coffee cost 120"
+        val costRegex = Pattern.compile(
+            "^(.+?)\\s+cost(?:s)?\\s+(?:rs\\.?|inr|₹)?\\s*(\\d+(?:\\.\\d+)?)\\s*(k|thousand|bucks|rupees)?$",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mCost = costRegex.matcher(trimmed)
+        if (mCost.find()) {
+            var desc = mCost.group(1)?.trim() ?: "Expense"
+            var rawAmount = mCost.group(2)?.toDoubleOrNull() ?: return null
+            val unit = mCost.group(3)?.lowercase() ?: ""
+            if (unit == "k" || unit == "thousand") rawAmount *= 1000.0
+
+            val category = inferFinanceCategory(desc, type = "DEBIT")
+            val amountMinor = (rawAmount * 100).toLong()
+            return FinancialMatch(
+                amountRupees = rawAmount,
+                amountMinor = amountMinor,
+                description = desc.replaceFirstChar { it.uppercase() },
+                category = category,
+                type = "DEBIT"
+            )
+        }
+
+        return null
+    }
+
+    /**
+     * Intelligent Category Classifier for Finance.
+     * Evaluates semantic keywords to automatically assign categories complying with Rule 17.
+     */
+    fun inferFinanceCategory(description: String, type: String = "DEBIT"): String {
+        val lower = description.lowercase()
+
+        // Transportation: traveling, travel, auto, cab, uber, ola, bus, train, flight, metro, petrol, diesel, fuel, toll, parking
+        if (lower.contains(Regex("\\b(traveling|travel|travelling|auto|cab|taxi|uber|ola|bus|train|flight|airline|metro|petrol|diesel|fuel|toll|fastag|parking|commute|transit|rickshaw)\\b"))) {
+            return "Transportation"
+        }
+
+        // Food & Dining: lunch, dinner, breakfast, snacks, coffee, tea, chai, swiggy, zomato, groceries, vegetables, milk, restaurant
+        if (lower.contains(Regex("\\b(food|lunch|dinner|breakfast|brunch|snacks?|coffee|cafe|tea|chai|swiggy|zomato|groceries|grocery|vegetables?|veggies?|fruits?|milk|bread|restaurant|bistro|burger|pizza|bakery|dining|meal|drinks?|barista)\\b"))) {
+            return "Food & Dining"
+        }
+
+        // Utilities & Bills: electricity, water, internet, wifi, mobile, recharge, gas, rent, maintenance
+        if (lower.contains(Regex("\\b(electricity|electric|power|water|internet|wifi|broadband|mobile|recharge|phone|sim|gas|cylinder|lpg|rent|maintenance|bills?|dth|tv|society)\\b"))) {
+            return "Utilities & Bills"
+        }
+
+        // Shopping: clothes, shoes, amazon, flipkart, mall, electronics, gadgets
+        if (lower.contains(Regex("\\b(clothes|clothing|shoes?|shirt|pants?|dress|amazon|flipkart|myntra|mall|electronics|gadgets?|laptop|phone case|shopping|purchases?|market|supermarket|store|apparel)\\b"))) {
+            return "Shopping"
+        }
+
+        // Health & Medical: medicine, doctor, pharmacy, clinic, test, hospital, gym, supplements
+        if (lower.contains(Regex("\\b(medicines?|meds|pills?|doctor|physician|pharmacy|chemist|clinic|tests?|hospital|gym|fitness|workout|supplements?|vitamins?|dentist|medical|health|pharma)\\b"))) {
+            return "Health & Medical"
+        }
+
+        // Entertainment: movie, netflix, game, party, outing, concert
+        if (lower.contains(Regex("\\b(movies?|cinema|theatre|netflix|prime|hotstar|games?|gaming|party|outing|concert|shows?|club|pub|weekend|subscriptions?|entertainment)\\b"))) {
+            return "Entertainment"
+        }
+
+        // Salary & Income
+        if (type == "CREDIT" || lower.contains(Regex("\\b(salary|stipend|consulting|bonus|freelance|dividends?|interest|cashback|refund|client|wage|income)\\b"))) {
+            return "Salary & Income"
+        }
+
+        return "General"
+    }
+
+    /**
+     * Extracts journal/diary content and auto-infers mood and category tags.
+     */
+    fun extractJournalNote(text: String): JournalMatch? {
+        val pattern = Pattern.compile("^(?:take a note|save note|note|journal entry|journal|diary entry|diary|write down)[:\\s]+(.+)", Pattern.CASE_INSENSITIVE)
         val m = pattern.matcher(text)
         if (m.find()) {
-            var rawAmount = m.group(1)?.toDoubleOrNull() ?: return null
-            val unit = m.group(2)?.lowercase() ?: ""
-            if (unit == "k" || unit == "thousand") {
-                rawAmount *= 1000.0
-            }
-            var desc = m.group(3)?.trim() ?: "General expense"
-            desc = desc.removePrefix("on ").removePrefix("for ").removePrefix("towards ").trim()
-            if (desc.isBlank()) desc = "Expense"
-            return Pair(rawAmount, desc.replaceFirstChar { it.uppercase() })
+            val content = m.group(1)?.trim() ?: return null
+            val mood = inferJournalMood(content)
+            val category = inferJournalCategory(content)
+            val title = generateJournalTitle(content)
+            return JournalMatch(
+                content = content,
+                title = title,
+                mood = mood,
+                category = category
+            )
         }
         return null
     }
 
-    private fun extractJournalNote(text: String): String? {
-        val pattern = Pattern.compile("^(?:take a note|save note|note|journal entry|save this|write down)[:\\s]+(.+)", Pattern.CASE_INSENSITIVE)
-        val m = pattern.matcher(text)
-        if (m.find()) {
-            return m.group(1)?.trim()
+    fun inferJournalMood(text: String): String {
+        val lower = text.lowercase()
+        return when {
+            lower.contains(Regex("\\b(focused|focus|productive|deep work|concentrated|locked in|clarity|sprint)\\b")) -> "Focused"
+            lower.contains(Regex("\\b(energized|energetic|excited|inspired|motivated|pumped|enthusiastic|breakthrough)\\b")) -> "Energized"
+            lower.contains(Regex("\\b(calm|peaceful|relaxed|serene|quiet|chill|mindful|zen)\\b")) -> "Calm"
+            lower.contains(Regex("\\b(grateful|thankful|blessed|appreciation|gratitude|thank)\\b")) -> "Grateful"
+            lower.contains(Regex("\\b(tired|exhausted|sleepy|fatigued|drained|low energy|burnout|rough day)\\b")) -> "Tired"
+            else -> "Reflective"
         }
-        return null
+    }
+
+    fun inferJournalCategory(text: String): String {
+        val lower = text.lowercase()
+        return when {
+            lower.contains(Regex("\\b(work|project|code|architecture|client|meeting|office|bug|feature|release|deadline|sprint|task|engineering|report|presentation)\\b")) -> "Work"
+            lower.contains(Regex("\\b(health|workout|gym|run|running|diet|sleep|fitness|walk|doctor|body|exercise|meds|meditation)\\b")) -> "Health"
+            lower.contains(Regex("\\b(idea|ideas|concept|plan|innovation|brainstorm|future|vision|startup|thought|notes?)\\b")) -> "Ideas"
+            lower.contains(Regex("\\b(personal|family|mom|dad|friend|relationship|home|life|travel|trip|day off|weekend|feeling|happy|sad|tired|chill)\\b")) -> "Personal"
+            lower.contains(Regex("\\b(grateful|thankful|gratitude|blessed|appreciation)\\b")) -> "Gratitude"
+            lower.contains(Regex("\\b(milestone|achieved|finished|launched|goal met|celebration|completed)\\b")) -> "Milestones"
+            else -> "Personal"
+        }
+    }
+
+    fun generateJournalTitle(content: String): String {
+        val clean = content.trim().replace(Regex("^(?:today|i am|feeling)\\s+", RegexOption.IGNORE_CASE), "")
+        val words = clean.split(Regex("\\s+"))
+        val titleWords = words.take(5).joinToString(" ")
+        return if (titleWords.length > 35) {
+            titleWords.take(32) + "..."
+        } else {
+            titleWords
+        }.replaceFirstChar { it.uppercase() }
     }
 
     private fun extractReminder(text: String): Pair<String, Long>? {
         val now = System.currentTimeMillis() / 1000
-        val lower = text.lowercase()
 
         // "remind me in 30 minutes to take medicine"
         val relPattern = Pattern.compile("remind me in\\s+(\\d+)\\s+(minute|minutes|hour|hours)\\s+(?:to\\s+)?(.+)", Pattern.CASE_INSENSITIVE)
@@ -268,7 +506,6 @@ object DexterIntentRouter {
             if (amPm == "pm" && hour24 < 12) hour24 += 12
             if (amPm == "am" && hour24 == 12) hour24 = 0
 
-            // Estimate epoch
             val cal = java.util.Calendar.getInstance()
             cal.set(java.util.Calendar.HOUR_OF_DAY, hour24)
             cal.set(java.util.Calendar.MINUTE, 0)
@@ -316,7 +553,7 @@ object DexterIntentRouter {
             val m = Pattern.compile(pat, Pattern.CASE_INSENSITIVE).matcher(text)
             if (m.find()) {
                 var title = m.group(1)?.trim() ?: continue
-                title = title.replace(Regex("(?i)\\b(urgent|critical|important|low priority)\\b"), "").trim()
+                title = title.replace(Regex("(?i)\\b(urgent|critical|important|high priority|low priority)\\b"), "").trim()
                 if (title.isNotEmpty()) {
                     return Pair(title.replaceFirstChar { it.uppercase() }, priority)
                 }

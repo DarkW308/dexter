@@ -86,16 +86,20 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
 
     fun speak(text: String) {
         _lastSpokenResponse.value = text
+        _orbState.value = OrbVisualState.SPEAKING
         if (isTtsInitialized && tts != null) {
-            _orbState.value = OrbVisualState.SPEAKING
             val params = Bundle().apply {
                 putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "DEXTER_UTTERANCE")
             }
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "DEXTER_UTTERANCE")
-        } else {
-            // Emulate visual pulse if TTS is not ready or silent
-            _orbState.value = OrbVisualState.SPEAKING
         }
+
+        // Safety fallback: Ensure orb returns to IDLE even if TTS is silent or lacks hardware on emulator
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (_orbState.value == OrbVisualState.SPEAKING) {
+                _orbState.value = OrbVisualState.IDLE
+            }
+        }, (text.length * 60L).coerceIn(1800L, 6000L))
     }
 
     fun stopSpeaking() {

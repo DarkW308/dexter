@@ -222,7 +222,13 @@ class DexterVoiceService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "startForeground caught exception: ${e.message}")
+            Log.e(TAG, "startForeground with microphone type failed, retrying generic startForeground: ${e.message}")
+            try {
+                startForeground(NOTIFICATION_ID, notification)
+            } catch (fatal: Exception) {
+                Log.e(TAG, "Fatal startForeground exception: ${fatal.message}")
+                stopSelf()
+            }
         }
     }
 

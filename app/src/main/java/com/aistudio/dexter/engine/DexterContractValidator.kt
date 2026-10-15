@@ -37,6 +37,7 @@ object DexterContractValidator {
         "complete_all_tasks" to "COMPLETE_ALL_TASKS",
         "list_completed_tasks" to "LIST_COMPLETED_TASKS",
         "log_expense" to "LOG_EXPENSE",
+        "log_transaction" to "LOG_TRANSACTION",
         "summarize_expenses" to "SUMMARIZE_EXPENSES",
         "log_journal" to "LOG_JOURNAL",
         "list_journal" to "LIST_JOURNAL",
@@ -195,24 +196,31 @@ object DexterContractValidator {
                 sanitized["task_id"] = taskId
             }
 
-            "LOG_EXPENSE" -> {
-                val amountRaw = params["amount"]
-                    ?: throw ContractValidationError("Parameter 'amount' is required for LOG_EXPENSE.")
+            "LOG_EXPENSE", "LOG_TRANSACTION" -> {
+                val amountRaw = params["amount"] ?: params["amountRupees"] ?: (params["amountMinor"] as? Number)?.let { it.toDouble() / 100.0 }
+                    ?: throw ContractValidationError("Parameter 'amount' is required for $intent.")
                 val amountDouble = when (amountRaw) {
                     is Number -> amountRaw.toDouble()
                     is String -> amountRaw.toDoubleOrNull()
-                        ?: throw ContractValidationError("Invalid expense amount: $amountRaw")
+                        ?: throw ContractValidationError("Invalid financial amount: $amountRaw")
                     else -> throw ContractValidationError("Parameter 'amount' must be numeric.")
                 }
                 if (amountDouble <= 0) {
-                    throw ContractValidationError("Expense amount must be positive and greater than zero.")
+                    throw ContractValidationError("Transaction amount must be positive and greater than zero.")
                 }
                 sanitized["amount"] = amountDouble
+                sanitized["amountMinor"] = params["amountMinor"] ?: (amountDouble * 100).toLong()
                 sanitized["description"] = requireText(params, "description", maxLen = 500)
+                sanitized["category"] = (params["category"] as? String)?.trim() ?: "General"
+                sanitized["type"] = (params["type"] as? String)?.trim()?.uppercase() ?: if (intent == "LOG_EXPENSE") "DEBIT" else "CREDIT"
+                sanitized["payment_mode"] = (params["payment_mode"] as? String)?.trim() ?: "UPI"
             }
 
             "LOG_JOURNAL" -> {
                 sanitized["content"] = requireText(params, "content", maxLen = 5000)
+                params["title"]?.let { sanitized["title"] = it.toString().trim() }
+                params["mood"]?.let { sanitized["mood"] = it.toString().trim() }
+                params["category"]?.let { sanitized["category"] = it.toString().trim() }
             }
 
             "CREATE_GOAL" -> {

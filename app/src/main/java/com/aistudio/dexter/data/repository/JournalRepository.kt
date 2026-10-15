@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import com.aistudio.dexter.data.db.DexterDatabaseHelper
 import com.aistudio.dexter.data.model.JournalEntry
+import java.util.Calendar
 
 class JournalRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper) {
 
@@ -13,102 +14,114 @@ class JournalRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelpe
     fun logJournal(
         content: String,
         title: String = "",
-        mood: String = "Reflective",
+        mood: String = "Calm",
         category: String = "Reflections",
-        source: String = "VOICE",
+        source: String = "APP",
         actorType: String = "USER"
     ): JournalEntry {
         val db = writableDb
-        val now = System.currentTimeMillis() / 1000
-
-        val cv = ContentValues().apply {
-            put("content", content.trim())
+        val now = System.currentTimeMillis()
+        val values = ContentValues().apply {
             put("title", title.trim())
+            put("content", content.trim())
             put("mood", mood.trim())
             put("category", category.trim())
-            put("source", source.trim())
+            put("source", source)
             put("created_at", now)
+            put("actor_type", actorType)
         }
-        val id = db.insertOrThrow("journal_entries", null, cv)
+
+        val id = db.insertOrThrow("journal_entries", null, values)
         return JournalEntry(
             id = id,
-            content = content.trim(),
             title = title.trim(),
+            content = content.trim(),
             mood = mood.trim(),
             category = category.trim(),
-            source = source.trim(),
+            source = source,
+            actorType = actorType,
             createdAt = now
         )
     }
 
-    fun insertNote(content: String, source: String = "VOICE", actorType: String = "USER"): JournalEntry {
-        return logJournal(content = content, source = source, actorType = actorType)
-    }
-
-    fun listJournal(limit: Int = 100): List<JournalEntry> {
-        val list = mutableListOf<JournalEntry>()
-        val db = readableDb
-        val cursor = db.rawQuery(
-            """
-            SELECT id, content, source, 
-                   COALESCE(title, '') AS title, 
-                   COALESCE(mood, 'Reflective') AS mood, 
-                   COALESCE(category, 'Reflections') AS category, 
-                   created_at
-            FROM journal_entries
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-            """,
-            arrayOf(limit.toString())
-        )
-        while (cursor.moveToNext()) {
-            list.add(mapRowToJournal(cursor))
-        }
-        cursor.close()
-        return list
-    }
-
-    fun listNotes(limit: Int = 100): List<JournalEntry> {
-        return listJournal(limit)
-    }
-
-    fun deleteJournal(id: Long): Boolean {
-        val db = writableDb
-        return db.delete("journal_entries", "id = ?", arrayOf(id.toString())) > 0
-    }
-
-    fun getJournalStats(): Triple<Int, Int, Int> {
-        val db = readableDb
-        val entries = listJournal(500)
-        val totalCount = entries.size
-        var totalWords = 0
-        for (e in entries) {
-            totalWords += e.wordCount
-        }
-        val streak = if (totalCount > 0) 3 else 0 // Seeded streak
-        return Triple(totalCount, streak, totalWords)
-    }
-
-    private fun mapRowToJournal(cursor: Cursor): JournalEntry {
-        val id = cursor.getLong(cursor.getColumnIndexOrThrow("id"))
-        val content = cursor.getString(cursor.getColumnIndexOrThrow("content"))
-        val source = cursor.getString(cursor.getColumnIndexOrThrow("source"))
-        val titleCol = cursor.getColumnIndex("title")
-        val title = if (titleCol != -1 && !cursor.isNull(titleCol)) cursor.getString(titleCol) else ""
-        val moodCol = cursor.getColumnIndex("mood")
-        val mood = if (moodCol != -1 && !cursor.isNull(moodCol)) cursor.getString(moodCol) else "Reflective"
-        val catCol = cursor.getColumnIndex("category")
-        val category = if (catCol != -1 && !cursor.isNull(catCol)) cursor.getString(catCol) else "Reflections"
-        val createdAt = cursor.getLong(cursor.getColumnIndexOrThrow("created_at"))
-
-        return JournalEntry(
-            id = id,
+    fun insertNote(
+        title: String,
+        content: String,
+        mood: String = "Calm",
+        category: String = "General"
+    ): Long {
+        val entry = logJournal(
             content = content,
-            source = source,
             title = title,
             mood = mood,
             category = category,
-            createdAt = createdAt
+            source = "APP",
+            actorType = "USER"
         )
+        return entry.id
+    }
+
+    fun listNotes(limit: Int = 100): List<JournalEntry> {
+        val list = mutableListOf<JournalEntry>()
+        val db = readableDb
+        val cursor = db.rawQuery(
+            "SELECT id, title, content, mood, category, source, created_at, actor_type FROM journal_entries ORDER BY created_at DESC LIMIT ?",
+            arrayOf(limit.toString())
+        )
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(
+                    JournalEntry(
+                        id = it.getLong(0),
+                        title = it.getString(1) ?: "",
+                        content = it.getString(2) ?: "",
+                        mood = it.getString(3) ?: "Calm",
+                        category = it.getString(4) ?: "General",
+                        source = it.getString(5) ?: "APP",
+                        createdAt = it.getLong(6),
+                        actorType = it.getString(7) ?: "USER"
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun getWordCountToday(): Int {
+        val db = readableDb
+        val cal = Calendar.getInstance()
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        val startOfToday = cal.timeInMillis
+
+        var totalWords = 0
+        val cursor = db.rawQuery(
+            "SELECT content FROM journal_entries WHERE created_at >= ?",
+            arrayOf(startOfToday.toString())
+        )
+        cursor.use {
+            while (it.moveToNext()) {
+                val text = it.getString(0) ?: ""
+                totalWords += text.trim().split(Regex("\\s+")).count { word -> word.isNotBlank() }
+            }
+        }
+        return totalWords
+    }
+
+    fun getWritingStreakDays(): Int {
+        val db = readableDb
+        val cursor = db.rawQuery(
+            "SELECT DISTINCT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') FROM journal_entries ORDER BY created_at DESC LIMIT 30",
+            null
+        )
+        val dates = mutableListOf<String>()
+        cursor.use {
+            while (it.moveToNext()) {
+                dates.add(it.getString(0) ?: "")
+            }
+        }
+        return dates.size.coerceAtLeast(1)
     }
 }
