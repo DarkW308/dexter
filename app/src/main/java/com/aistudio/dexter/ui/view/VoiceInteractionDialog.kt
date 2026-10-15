@@ -17,17 +17,22 @@ import kotlinx.coroutines.flow.collectLatest
  * Shows enlarged animated VoiceOrbView, live partial STT transcription,
  * inline confirmation prompt for destructive actions, and text fallback input.
  */
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.core.content.ContextCompat
+import java.util.Locale
+
 class VoiceInteractionDialog(
     context: Context,
     private val speechManager: DexterSpeechManager,
     private val actionExecutor: DexterActionExecutor,
-    private val onActionCompleted: ((String) -> Unit)? = null
+    private val onActionCompleted: ((String) -> Unit)? = null,
+    private val onLaunchSystemVoice: (() -> Unit)? = null
 ) : Dialog(context, R.style.Theme_Dexter_Dialog_FullScreen) {
 
     private lateinit var binding: DialogVoiceInteractionBinding
     private val dialogScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var pendingDestructiveAction: ActionContract? = null
-    private var silenceHintJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -130,6 +135,49 @@ class VoiceInteractionDialog(
         binding.chipShowTasks.setOnClickListener {
             processUserText("Pending tasks")
         }
+
+        // Speech Diagnostics Controls
+        binding.btnDiagnostics.setOnClickListener {
+            if (binding.diagnosticsCard.visibility == View.VISIBLE) {
+                binding.diagnosticsCard.visibility = View.GONE
+            } else {
+                binding.diagnosticsCard.visibility = View.VISIBLE
+                binding.diagnosticsReportText.text = speechManager.latestDiagnostics.value.formatDiagnosticReport()
+            }
+        }
+
+        binding.btnCloseDiagnostics.setOnClickListener {
+            binding.diagnosticsCard.visibility = View.GONE
+        }
+
+        binding.btnProbeHardware.setOnClickListener {
+            binding.btnProbeHardware.isEnabled = false
+            binding.diagnosticsReportText.text = "Sampling direct microphone hardware for 1.2s...\nPlease speak now to test physical mic."
+            dialogScope.launch {
+                val probeResult = SpeechHardwareProbe.runProbe(context)
+                binding.btnProbeHardware.isEnabled = true
+                val currentDiag = speechManager.latestDiagnostics.value
+                currentDiag.hardwareProbeResult = probeResult.message
+                binding.diagnosticsReportText.text = currentDiag.formatDiagnosticReport()
+            }
+        }
+
+        binding.btnSystemVoice.setOnClickListener {
+            speechManager.stopListening()
+            if (onLaunchSystemVoice != null) {
+                onLaunchSystemVoice.invoke()
+            } else {
+                try {
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak a command to Dexter")
+                    }
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    binding.diagnosticsReportText.text = "System speech intent failed: ${e.message}"
+                }
+            }
+        }
     }
 
     private fun observeSpeechState() {
@@ -139,7 +187,6 @@ class VoiceInteractionDialog(
                 binding.dialogVoiceOrb.setState(state)
                 when (state) {
                     OrbVisualState.IDLE -> {
-                        silenceHintJob?.cancel()
                         if (!speechManager.isRecognitionAvailable()) {
                             binding.stateLabel.text = "Voice Ready"
                         } else {
@@ -148,37 +195,49 @@ class VoiceInteractionDialog(
                         binding.audioIndicator.visibility = View.GONE
                     }
                     OrbVisualState.LISTENING -> {
-                        binding.stateLabel.text = "Listening..."
+                        binding.stateLabel.text = "Listening... Speak now"
+                        binding.transcriptText.text = "Listening for voice command... (e.g. 'spent 45 in traveling')"
                         binding.audioIndicator.visibility = View.VISIBLE
-                        binding.audioIndicator.text = "● REC"
-
-                        // In web/streaming emulators, microphone audio from the host browser
-                        // often cannot reach the guest OS. Detect silence and guide the user.
-                        silenceHintJob?.cancel()
-                        silenceHintJob = dialogScope.launch {
-                            delay(3500)
-                            if (speechManager.orbState.value == OrbVisualState.LISTENING) {
-                                binding.stateLabel.text = "Listening... (Microphone quiet)"
-                                binding.transcriptText.text = "Microphone quiet or unlinked in browser emulator.\nTap '🚗 spent 45 in traveling' or type below to test live!"
-                            }
-                        }
+                        binding.audioIndicator.text = "● LISTENING · 0.0 dB"
                     }
                     OrbVisualState.PROCESSING -> {
-                        silenceHintJob?.cancel()
                         binding.stateLabel.text = "Processing..."
                         binding.audioIndicator.visibility = View.VISIBLE
                         binding.audioIndicator.text = "⚙ BUSY"
                     }
                     OrbVisualState.SPEAKING -> {
-                        silenceHintJob?.cancel()
                         binding.stateLabel.text = "Speaking..."
                         binding.audioIndicator.visibility = View.GONE
                     }
                     OrbVisualState.ERROR -> {
-                        silenceHintJob?.cancel()
                         binding.stateLabel.text = "Something went wrong"
                         binding.audioIndicator.visibility = View.GONE
                     }
+                }
+            }
+        }
+
+        // Observe Live Audio Detection & Volume
+        dialogScope.launch {
+            speechManager.rmsVolume.collectLatest { rms ->
+                if (speechManager.orbState.value == OrbVisualState.LISTENING) {
+                    val formattedRms = String.format(Locale.US, "%.1f", rms)
+                    if (rms > 2.0f) {
+                        binding.audioIndicator.text = "● AUDIO DETECTED · $formattedRms dB"
+                        binding.audioIndicator.setTextColor(ContextCompat.getColor(context, R.color.status_live))
+                    } else {
+                        binding.audioIndicator.text = "● LISTENING · $formattedRms dB"
+                        binding.audioIndicator.setTextColor(ContextCompat.getColor(context, R.color.dexter_primary))
+                    }
+                }
+            }
+        }
+
+        // Observe Live Diagnostics Report
+        dialogScope.launch {
+            speechManager.latestDiagnostics.collectLatest { diag ->
+                if (binding.diagnosticsCard.visibility == View.VISIBLE) {
+                    binding.diagnosticsReportText.text = diag.formatDiagnosticReport()
                 }
             }
         }
@@ -213,6 +272,10 @@ class VoiceInteractionDialog(
                 binding.audioIndicator.visibility = View.GONE
             }
         }
+    }
+
+    fun processRecognizedText(text: String) {
+        processUserText(text)
     }
 
     private fun processUserText(text: String) {
@@ -281,7 +344,6 @@ class VoiceInteractionDialog(
     }
 
     override fun dismiss() {
-        silenceHintJob?.cancel()
         speechManager.stopListening()
         speechManager.stopSpeaking()
         speechManager.setVisualState(OrbVisualState.IDLE)

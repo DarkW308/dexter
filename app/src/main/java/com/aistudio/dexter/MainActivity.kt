@@ -3,6 +3,7 @@ package com.aistudio.dexter
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.speech.RecognizerIntent
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
@@ -36,6 +37,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var repository: DexterRepository
     private lateinit var speechManager: DexterSpeechManager
     private lateinit var actionExecutor: DexterActionExecutor
+
+    private var activeVoiceDialog: VoiceInteractionDialog? = null
+
+    private val systemSpeechLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val text = matches?.firstOrNull()
+            if (!text.isNullOrBlank()) {
+                activeVoiceDialog?.processRecognizedText(text)
+            }
+        }
+    }
 
     private val audioPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -146,9 +161,23 @@ class MainActivity : AppCompatActivity() {
             actionExecutor = actionExecutor,
             onActionCompleted = {
                 loadDashboardData()
+            },
+            onLaunchSystemVoice = {
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak a Dexter command (e.g. 'spent 45 in traveling')")
+                }
+                try {
+                    systemSpeechLauncher.launch(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "System speech dialog unavailable: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         )
+        activeVoiceDialog = dialog
         dialog.setOnDismissListener {
+            activeVoiceDialog = null
             binding.voiceOrbView.setState(OrbVisualState.IDLE)
             loadDashboardData()
         }

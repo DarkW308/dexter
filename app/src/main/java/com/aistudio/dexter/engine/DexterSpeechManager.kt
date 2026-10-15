@@ -109,72 +109,198 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
         }
     }
 
+    private val _rmsVolume = MutableStateFlow(0f)
+    val rmsVolume: StateFlow<Float> = _rmsVolume.asStateFlow()
+
+    private val _latestDiagnostics = MutableStateFlow(SpeechSessionDiagnostics())
+    val latestDiagnostics: StateFlow<SpeechSessionDiagnostics> = _latestDiagnostics.asStateFlow()
+
     fun startListening() {
+        // Run on Main Looper to satisfy SpeechRecognizer thread requirements
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { startListening() }
+            return
+        }
+
         // Barge-in: if Dexter is speaking, silence him immediately
         stopSpeaking()
 
+        val diag = SpeechSessionDiagnostics()
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+        if (audioManager != null) {
+            diag.isMicrophoneMuted = audioManager.isMicrophoneMute
+            diag.audioMode = when (audioManager.mode) {
+                android.media.AudioManager.MODE_NORMAL -> "MODE_NORMAL"
+                android.media.AudioManager.MODE_RINGTONE -> "MODE_RINGTONE"
+                android.media.AudioManager.MODE_IN_CALL -> "MODE_IN_CALL"
+                android.media.AudioManager.MODE_IN_COMMUNICATION -> "MODE_IN_COMMUNICATION"
+                else -> "MODE_${audioManager.mode}"
+            }
+        }
+
+        val availableServices = try {
+            val serviceIntent = Intent("android.speech.RecognitionService")
+            val matches = context.packageManager.queryIntentServices(serviceIntent, 0)
+            matches.map { it.serviceInfo.packageName }
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        diag.recognitionServicePackage = if (availableServices.isNotEmpty()) {
+            availableServices.joinToString(", ")
+        } else {
+            "System Default"
+        }
+
+        _latestDiagnostics.value = diag
+
+        val currentLocale = Locale.getDefault()
+        val languageTag = currentLocale.toLanguageTag().ifBlank { "en-IN" }
+
+        Log.i("DexterSTTDiagnostics", "==================================================")
+        Log.i("DexterSTTDiagnostics", "SPEECH RECOGNITION SESSION INITIALIZED")
+        Log.i("DexterSTTDiagnostics", "Package: ${context.packageName}")
+        Log.i("DexterSTTDiagnostics", "Locale Tag: $languageTag")
+        Log.i("DexterSTTDiagnostics", "Microphone Muted (AudioManager): ${diag.isMicrophoneMuted}")
+        Log.i("DexterSTTDiagnostics", "Audio Mode: ${diag.audioMode}")
+        Log.i("DexterSTTDiagnostics", "Available Recognition Services: $availableServices")
+        Log.i("DexterSTTDiagnostics", "==================================================")
+
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             _orbState.value = OrbVisualState.IDLE
-            val msg = "Speech recognizer is not installed on this emulator. You can tap the command chips below or type instructions directly."
-            Log.w("DexterSpeech", msg)
+            diag.lastErrorMessage = "Speech recognizer service unavailable on this device."
+            _latestDiagnostics.value = diag.copy()
+            val msg = "Speech recognizer service unavailable on this device. You can tap the sample commands or type below."
+            Log.w("DexterSTTDiagnostics", msg)
             onSpeechError?.invoke(msg)
             return
         }
 
         _orbState.value = OrbVisualState.LISTENING
         _partialTranscript.value = ""
+        _rmsVolume.value = 0f
 
         try {
-            if (speechRecognizer == null) {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
-            }
+            // Re-instantiate SpeechRecognizer to clear any blocked state or previous crash
+            try {
+                speechRecognizer?.destroy()
+            } catch (ignored: Exception) {}
+
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
 
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, languageTag)
+                putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, languageTag)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra("android.speech.extra.DICTATION_MODE", true)
+
+                // Extended silence timeouts so users have plenty of time to speak naturally
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 3500L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
             }
 
             speechRecognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
                     _orbState.value = OrbVisualState.LISTENING
+                    diag.onReadyForSpeechFired = true
+                    _latestDiagnostics.value = diag.copy()
+                    Log.i("DexterSTTDiagnostics", "[Callback] onReadyForSpeech: audio stream opened, listening for microphone input")
                 }
 
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onBeginningOfSpeech() {
+                    _orbState.value = OrbVisualState.LISTENING
+                    diag.onBeginningOfSpeechFired = true
+                    _latestDiagnostics.value = diag.copy()
+                    Log.i("DexterSTTDiagnostics", "[Callback] onBeginningOfSpeech: speech threshold surpassed (Current RMS = ${diag.currentRmsDb} dB)")
+                }
+
+                override fun onRmsChanged(rmsdB: Float) {
+                    diag.recordRms(rmsdB)
+                    if (rmsdB > 0f) {
+                        _rmsVolume.value = rmsdB
+                    }
+                    _latestDiagnostics.value = diag.copy()
+                    if (diag.rmsSamplesCount % 12 == 0 || rmsdB >= diag.maxRmsDb) {
+                        Log.d("DexterSTTDiagnostics", "[Signal] RMS Level: ${String.format(Locale.US, "%.1f", rmsdB)} dB | Peak: ${String.format(Locale.US, "%.1f", diag.maxRmsDb)} dB | Samples: ${diag.rmsSamplesCount}")
+                    }
+                }
+
+                override fun onBufferReceived(buffer: ByteArray?) {
+                    diag.rawBuffersCount++
+                    _latestDiagnostics.value = diag.copy()
+                    Log.v("DexterSTTDiagnostics", "[Callback] onBufferReceived: ${buffer?.size ?: 0} raw PCM bytes received")
+                }
+
                 override fun onEndOfSpeech() {
                     _orbState.value = OrbVisualState.PROCESSING
+                    diag.onEndOfSpeechFired = true
+                    _latestDiagnostics.value = diag.copy()
+                    Log.i("DexterSTTDiagnostics", "[Callback] onEndOfSpeech: input ended, beginning recognizer processing")
                 }
 
                 override fun onError(error: Int) {
-                    val message = when (error) {
-                        SpeechRecognizer.ERROR_NO_MATCH -> "No speech recognized. Speak closer to the microphone or tap a sample command below."
-                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Listening timed out. Tap orb to try again or tap a sample command below."
-                        SpeechRecognizer.ERROR_AUDIO -> "Audio recording issue. Tap a sample command or type your command below."
-                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission required. Please grant permission."
-                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER ->
-                            "Voice network service unavailable on emulator. You can tap sample commands or type below."
-                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Voice recognizer was busy. Ready to listen again."
-                        else -> "Speech recognition error ($error). Tap a sample command below to test immediately."
+                    val (errorName, message) = when (error) {
+                        SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO (3)" to "Microphone audio recording issue. Please check permissions."
+                        SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT (5)" to "Speech client error. Ready to listen again."
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "ERROR_INSUFFICIENT_PERMISSIONS (9)" to "Microphone permission required. Please grant permission in Settings."
+                        SpeechRecognizer.ERROR_NETWORK -> "ERROR_NETWORK (2)" to "Voice network service unavailable."
+                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "ERROR_NETWORK_TIMEOUT (1)" to "Voice network request timed out."
+                        SpeechRecognizer.ERROR_NO_MATCH -> "ERROR_NO_MATCH (7)" to "No speech detected. Tap the orb to speak, or choose a command below."
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ERROR_RECOGNIZER_BUSY (8)" to "Voice recognizer was busy. Ready to listen again."
+                        SpeechRecognizer.ERROR_SERVER -> "ERROR_SERVER (4)" to "Voice recognition server error."
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "ERROR_SPEECH_TIMEOUT (6)" to "Listening timed out. Tap the orb to speak, or choose a command below."
+                        else -> "ERROR_UNKNOWN ($error)" to "Speech recognition paused ($error). Tap the orb to speak again."
                     }
-                    Log.w("DexterSpeech", "Speech recognition error $error: $message")
+
+                    diag.lastErrorCode = error
+                    diag.lastErrorName = errorName
+                    diag.lastErrorMessage = message
+                    diag.durationMs = System.currentTimeMillis() - diag.sessionStartTimeMs
+                    _latestDiagnostics.value = diag.copy()
+
+                    Log.w("DexterSTTDiagnostics", "==================================================")
+                    Log.w("DexterSTTDiagnostics", "SPEECH RECOGNITION ERROR: $errorName")
+                    Log.w("DexterSTTDiagnostics", "Session Duration: ${diag.durationMs}ms")
+                    Log.w("DexterSTTDiagnostics", "Total RMS Samples: ${diag.rmsSamplesCount}")
+                    Log.w("DexterSTTDiagnostics", "Peak RMS: ${String.format(Locale.US, "%.1f", diag.maxRmsDb)} dB")
+                    Log.w("DexterSTTDiagnostics", "Avg RMS: ${String.format(Locale.US, "%.1f", diag.avgRmsDb)} dB")
+                    Log.w("DexterSTTDiagnostics", "Speech Began Callback: ${diag.onBeginningOfSpeechFired}")
+                    Log.w("DexterSTTDiagnostics", "DIAGNOSIS: ${diag.getSignalHealthSummary()}")
+                    Log.w("DexterSTTDiagnostics", "==================================================")
+
                     _orbState.value = OrbVisualState.IDLE
+                    _rmsVolume.value = 0f
                     onSpeechError?.invoke(message)
                 }
 
                 override fun onResults(results: Bundle?) {
                     _orbState.value = OrbVisualState.PROCESSING
+                    _rmsVolume.value = 0f
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     val text = matches?.firstOrNull() ?: ""
                     _partialTranscript.value = text
+
+                    diag.recognizedText = text
+                    diag.durationMs = System.currentTimeMillis() - diag.sessionStartTimeMs
+                    _latestDiagnostics.value = diag.copy()
+
+                    Log.i("DexterSTTDiagnostics", "==================================================")
+                    Log.i("DexterSTTDiagnostics", "SPEECH RECOGNITION SUCCESSFUL: \"$text\"")
+                    Log.i("DexterSTTDiagnostics", "Peak RMS: ${String.format(Locale.US, "%.1f", diag.maxRmsDb)} dB | Samples: ${diag.rmsSamplesCount}")
+                    Log.i("DexterSTTDiagnostics", "All Alternatives: $matches")
+                    Log.i("DexterSTTDiagnostics", "==================================================")
+
                     val cleaned = filterHallucinations(text)
                     if (cleaned.isNotBlank()) {
                         onSpeechResult?.invoke(cleaned)
                     } else {
                         _orbState.value = OrbVisualState.IDLE
-                        onSpeechError?.invoke("No clear speech detected. Try again or tap a command below.")
+                        onSpeechError?.invoke("No clear speech detected. Tap the orb to speak again.")
                     }
                 }
 
@@ -190,9 +316,9 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
 
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
-            Log.e("DexterSpeech", "Error starting SpeechRecognizer", e)
+            Log.e("DexterSTTDiagnostics", "Error starting SpeechRecognizer", e)
             _orbState.value = OrbVisualState.IDLE
-            onSpeechError?.invoke("Could not start speech recognizer: ${e.message}. Use sample commands below.")
+            onSpeechError?.invoke("Could not start speech recognizer: ${e.message}. Tap a command below.")
         }
     }
 
