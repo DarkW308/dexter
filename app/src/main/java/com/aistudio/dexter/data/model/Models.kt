@@ -167,31 +167,188 @@ data class GoalItem(
     val id: Long = 0L,
     val name: String = "",
     val title: String = name,
+    val category: String = "Financial",
     val priority: Priority = Priority.NORMAL,
-    val targetDate: Long = 0L,
+    val targetDate: String = "",
+    val targetAmount: Double = 0.0,
+    val currentAmount: Double = 0.0,
+    val metricUnit: String = "₹",
     val progressPercent: Int = 0,
-    val status: String = "IN_PROGRESS"
-) : Serializable
+    val status: String = "ACTIVE"
+) : Serializable {
+    val progressLabel: String
+        get() = if (targetAmount > 0) {
+            val curr = if (metricUnit == "₹") "₹" + String.format(Locale.US, "%,.0f", currentAmount) else "$currentAmount $metricUnit"
+            val tgt = if (metricUnit == "₹") "₹" + String.format(Locale.US, "%,.0f", targetAmount) else "$targetAmount $metricUnit"
+            "$curr / $tgt ($progressPercent%)"
+        } else {
+            "$progressPercent% Completed"
+        }
+}
 
 data class ProjectItem(
     val id: Long = 0L,
     val name: String = "",
+    val title: String = name,
+    val description: String = "",
+    val deadline: String = "",
     val status: String = "ACTIVE",
     val colorHex: String = "#4FC3F7",
+    val progressPercent: Int = 0,
     val taskCount: Int = 0
+) : Serializable
+
+data class MilestoneItem(
+    val id: Long = 0L,
+    val projectId: Long = 0L,
+    val title: String = "",
+    val isCompleted: Boolean = false
 ) : Serializable
 
 data class AlarmItem(
     val id: Long = 0L,
-    val alarmTime: Long,
-    val label: String,
-    val repeatDays: String = "",
+    val alarmTime: Long = 0L,
+    val label: String = "",
+    val repeatDays: String = "Mon, Wed, Fri",
     val isEnabled: Boolean = true,
+    val vibrate: Boolean = true,
     val createdAt: Long = System.currentTimeMillis()
 ) : Serializable {
     val humanTime: String
-        get() = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(alarmTime))
+        get() = if (alarmTime > 0) SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(alarmTime)) else "06:30 AM"
 }
+
+data class ScheduleBlockItem(
+    val id: Long = 0L,
+    val title: String = "",
+    val startTime: String = "10:00 AM",
+    val endTime: String = "11:00 AM",
+    val category: String = "Deep Work",
+    val colorHex: String = "#4FC3F7",
+    val location: String = ""
+) : Serializable
+
+data class PersonItem(
+    val id: Long = 0L,
+    val name: String = "",
+    val relationType: String = "Friend",
+    val phone: String = "",
+    val email: String = "",
+    val birthday: String = "",
+    val notes: String = "",
+    val lastContactedText: String = "Recently"
+) : Serializable {
+    val initial: String
+        get() = name.trim().take(1).uppercase().ifEmpty { "?" }
+}
+
+data class InteractionItem(
+    val id: Long = 0L,
+    val personId: Long = 0L,
+    val note: String = "",
+    val interactionType: String = "Call",
+    val interactionDate: String = "Today"
+) : Serializable
+
+data class SleepItem(
+    val id: Long = 0L,
+    val bedtime: String = "11:30 PM",
+    val waketime: String = "06:50 AM",
+    val durationText: String = "7h 20m",
+    val qualityRating: Int = 5,
+    val qualityLabel: String = "Restful",
+    val notes: String = ""
+) : Serializable
+
+data class MoodItem(
+    val id: Long = 0L,
+    val mood: String = "Calm",
+    val energyLevel: String = "High",
+    val note: String = "",
+    val loggedAt: Long = System.currentTimeMillis()
+) : Serializable {
+    val humanTime: String
+        get() = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(loggedAt))
+}
+
+data class HabitItem(
+    val id: Long = 0L,
+    val name: String = "",
+    val frequency: String = "Daily",
+    val reminderTime: String = "08:00 AM",
+    val streakCount: Int = 0,
+    val isDoneToday: Boolean = false
+) : Serializable
+
+data class DocumentItem(
+    val id: Long = 0L,
+    val title: String = "",
+    val source: String = "Manual.pdf",
+    val fileType: String = "PDF",
+    val excerpt: String = "",
+    val chunkCount: Int = 1,
+    val createdAt: Long = System.currentTimeMillis()
+) : Serializable {
+    val humanDate: String
+        get() = SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(createdAt))
+}
+
+data class CaptureItem(
+    val id: Long = 0L,
+    val noteText: String = "",
+    val status: String = "UNPROCESSED",
+    val capturedAt: Long = System.currentTimeMillis()
+) : Serializable {
+    val humanTime: String
+        get() {
+            val now = System.currentTimeMillis()
+            val diff = now - capturedAt
+            return when {
+                diff < 60_000 -> "Just now"
+                diff < 3600_000 -> "${diff / 60_000}m ago"
+                diff < 86400_000 -> "Today at " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(capturedAt))
+                diff < 172800_000 -> "Yesterday"
+                else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(capturedAt))
+            }
+        }
+}
+
+data class AttentionItem(
+    val id: Long = 0L,
+    val title: String = "",
+    val urgency: String = "Normal", // Critical, Normal, Info
+    val isAcknowledged: Boolean = false,
+    val snoozedUntil: Long = 0L
+) : Serializable
+
+data class BriefingItem(
+    val id: Long = 0L,
+    val title: String = "",
+    val summaryText: String = "",
+    val dateString: String = "",
+    val tasksCount: Int = 0,
+    val spentMinor: Long = 0L,
+    val weatherText: String = "28°C Sunny"
+) : Serializable {
+    val formattedSpent: String
+        get() = "₹" + String.format(Locale.US, "%,.2f", spentMinor / 100.0)
+}
+
+data class RuleItem(
+    val id: Long = 0L,
+    val ruleText: String = "",
+    val enforcementLevel: String = "Strict", // Strict, Warn
+    val isEnabled: Boolean = true
+) : Serializable
+
+data class DiagnosticsInfo(
+    val ramUsedMb: Int = 84,
+    val ramBudgetMb: Int = 120,
+    val dbSizeKb: Long = 324L,
+    val walMode: Boolean = true,
+    val modelStatus: String = "Needle 3 Offline (Ready)",
+    val integrityStatus: String = "OK"
+) : Serializable
 
 data class AuditLog(
     val id: Long = 0L,
@@ -204,6 +361,8 @@ data class AuditLog(
     val actionType: String get() = action
     val createdAt: Long get() = timestamp
     val message: String get() = details
+    val humanTime: String
+        get() = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(timestamp))
 }
 
 data class DailyBriefing(

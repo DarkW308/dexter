@@ -38,6 +38,7 @@ fun VoiceInteractionModal(
     transcript: String,
     lastResponse: String,
     pendingConfirmation: ParsedIntent?,
+    audioIntensity: Float = 0f,
     onDismiss: () -> Unit,
     onConfirmAction: (ParsedIntent) -> Unit,
     onCancelConfirmation: () -> Unit,
@@ -129,6 +130,7 @@ fun VoiceInteractionModal(
             ) {
                 VoiceOrb(
                     state = orbState,
+                    audioIntensity = audioIntensity,
                     size = 230.dp,
                     onTap = {
                         // toggle or restart listening

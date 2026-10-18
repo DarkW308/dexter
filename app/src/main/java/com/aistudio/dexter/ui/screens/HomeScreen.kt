@@ -24,6 +24,7 @@ import com.aistudio.dexter.ui.theme.*
 fun HomeScreen(
     orbState: OrbVisualState,
     briefing: DailyBriefing?,
+    audioIntensity: Float = 0f,
     onTapOrb: () -> Unit,
     onPlayBriefing: () -> Unit,
     onQuickPrompt: (String) -> Unit
@@ -42,6 +43,7 @@ fun HomeScreen(
         // Center Voice Orb
         VoiceOrb(
             state = orbState,
+            audioIntensity = audioIntensity,
             size = 200.dp,
             onTap = onTapOrb
         )

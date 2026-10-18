@@ -37,9 +37,9 @@ class SegmentsActivity : AppCompatActivity() {
         rvSegments.layoutManager = LinearLayoutManager(this)
         adapter = SegmentsAdapter(emptyList()) { selectedSegment ->
             when (selectedSegment.segmentNumber) {
-                8 -> startActivity(Intent(this, FinanceActivity::class.java))
-                10 -> startActivity(Intent(this, JournalActivity::class.java))
-                2 -> startActivity(Intent(this, TasksActivity::class.java))
+                1 -> startActivity(Intent(this, TasksActivity::class.java))
+                4 -> startActivity(Intent(this, FinanceActivity::class.java))
+                5 -> startActivity(Intent(this, JournalActivity::class.java))
                 else -> {
                     val intent = Intent(this, SegmentDetailActivity::class.java).apply {
                         putExtra(SegmentDetailActivity.EXTRA_SEGMENT_NUMBER, selectedSegment.segmentNumber)
@@ -98,15 +98,26 @@ class SegmentsActivity : AppCompatActivity() {
             val dbFile = getDatabasePath("dexter.db")
             val dbSizeKb = if (dbFile.exists()) dbFile.length() / 1024 else 0
             findViewById<TextView>(R.id.tvTotalDbSize).text = "WAL Mode · ${dbSizeKb} KB"
+
+            // Update chip counts
+            findViewById<TextView>(R.id.chipAll).text = "All (${allSegments.size})"
+            findViewById<TextView>(R.id.chipProductivity).text = "Productivity (${allSegments.count { it.category == "Productivity" || it.category == "Finance" }})"
+            findViewById<TextView>(R.id.chipLife).text = "Life & Health (${allSegments.count { it.category == "Life Tracking" || it.category == "Reflection" }})"
+            findViewById<TextView>(R.id.chipIntelligence).text = "Intelligence (${allSegments.count { it.category == "Intelligence" }})"
+            findViewById<TextView>(R.id.chipSystem).text = "System & Audit (${allSegments.count { it.category == "System & Security" }})"
+
             applyFilter()
         }
     }
 
     private fun applyFilter() {
-        val filtered = if (currentFilter == "All") {
-            allSegments
-        } else {
-            allSegments.filter { it.category == currentFilter || (currentFilter == "Life Tracking" && (it.category == "Life Tracking" || it.category == "Reflection")) }
+        val filtered = when (currentFilter) {
+            "All" -> allSegments
+            "Productivity" -> allSegments.filter { it.category == "Productivity" || it.category == "Finance" }
+            "Life Tracking" -> allSegments.filter { it.category == "Life Tracking" || it.category == "Reflection" }
+            "Intelligence" -> allSegments.filter { it.category == "Intelligence" }
+            "System & Security" -> allSegments.filter { it.category == "System & Security" }
+            else -> allSegments.filter { it.category == currentFilter }
         }
         adapter.updateList(filtered)
     }
