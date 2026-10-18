@@ -404,6 +404,36 @@ class DexterActionExecutor(
                 )
             }
 
+            // 19. CREATE_ALARM
+            "CREATE_ALARM" -> {
+                val label = action.parameters["label"] as? String ?: "Reminder"
+                val rawTime = (action.parameters["alarm_time"] as? Number)?.toLong()
+                    ?: (action.parameters["alarmTime"] as? Number)?.toLong()
+                    ?: (System.currentTimeMillis() + 60000L)
+                val repeatDays = action.parameters["repeat_days"] as? String ?: ""
+
+                // Ensure alarmTime is in milliseconds (if passed in seconds, convert)
+                val alarmTimeMs = if (rawTime < 10000000000L) rawTime * 1000L else rawTime
+
+                val alarm = alarmRepo.createAlarm(
+                    alarmTime = alarmTimeMs,
+                    label = label,
+                    repeatDays = repeatDays
+                )
+
+                val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                val timeStr = sdf.format(java.util.Date(alarmTimeMs))
+
+                ActionResult(
+                    success = true,
+                    intent = "CREATE_ALARM",
+                    message = "Set reminder for '$label' at $timeStr.",
+                    entityType = "ALARM",
+                    entityId = alarm.id,
+                    data = mapOf("alarm" to alarm)
+                )
+            }
+
             else -> {
                 ActionResult(
                     success = false,

@@ -44,6 +44,9 @@ object DexterContractValidator {
         "list_alarms" to "LIST_ALARMS",
         "cancel_alarms" to "CANCEL_ALARMS",
         "daily_briefing" to "DAILY_BRIEFING",
+        "create_alarm" to "CREATE_ALARM",
+        "set_alarm" to "CREATE_ALARM",
+        "create_reminder" to "CREATE_ALARM",
         "create_goal" to "CREATE_GOAL",
         "list_goals" to "LIST_GOALS",
         "create_project" to "CREATE_PROJECT",
@@ -235,6 +238,20 @@ object DexterContractValidator {
                     throw ContractValidationError("Model hallucination detected: AI cannot invent project IDs.")
                 }
                 sanitized["name"] = requireText(params, "name", maxLen = 500)
+            }
+
+            "CREATE_ALARM" -> {
+                if (params.containsKey("id") || params.containsKey("alarm_id")) {
+                    throw ContractValidationError("Model hallucination detected: AI cannot invent alarm IDs.")
+                }
+                sanitized["label"] = (params["label"] as? String)?.trim() ?: "Reminder"
+                val rawTime = params["alarmTime"] ?: params["alarm_time"]
+                sanitized["alarm_time"] = when (rawTime) {
+                    is Number -> rawTime.toLong()
+                    is String -> rawTime.toLongOrNull() ?: (System.currentTimeMillis() + 60000L)
+                    else -> System.currentTimeMillis() + 60000L
+                }
+                sanitized["repeat_days"] = (params["repeat_days"] as? String)?.trim() ?: ""
             }
 
             // Zero-parameter safe queries & bulk operations

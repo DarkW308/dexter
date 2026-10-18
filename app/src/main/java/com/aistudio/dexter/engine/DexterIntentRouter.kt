@@ -50,27 +50,77 @@ object DexterIntentRouter {
             )
         }
 
-        // 2. Daily Briefing
-        if (lower.contains("briefing") || lower.contains("morning summary") || lower.contains("what do i need to know today") || lower == "daily summary") {
+        // 2. Interrogative Voice Query Guard (Android STT never includes '?')
+        val isQuery = lower.startsWith("what") || lower.startsWith("which") ||
+                lower.startsWith("how") || lower.startsWith("when") ||
+                lower.startsWith("where") || lower.startsWith("who") ||
+                lower.startsWith("show") || lower.startsWith("list") ||
+                lower.startsWith("tell me") || lower.startsWith("do i have") ||
+                lower.startsWith("are there") || lower.startsWith("any ") ||
+                lower.contains("pending") || text.endsWith("?")
+
+        if (isQuery) {
+            // Task queries: "what are all the pending tasks today", "what tasks do i have", "show completed tasks"
+            if (lower.contains("task") || lower.contains("todo") || lower.contains("pending") ||
+                lower.contains("to do") || lower.contains("to-do") || lower.contains("what do i need to do") ||
+                lower.contains("unfinished") || lower.contains("work")) {
+                if (lower.contains("completed") || lower.contains("finished") || lower.contains("done") || lower.contains("finished tasks")) {
+                    return ParsedIntent("LIST_COMPLETED_TASKS")
+                }
+                return ParsedIntent("LIST_PENDING_TASKS")
+            }
+
+            // Finance queries: "how much did i spend", "what did i spend today", "show expenses"
+            if (lower.contains("spend") || lower.contains("spent") || lower.contains("expense") ||
+                lower.contains("money") || lower.contains("spending") || lower.contains("cost") || lower.contains("balance")) {
+                return ParsedIntent("SUMMARIZE_EXPENSES")
+            }
+
+            // Alarm / Reminder queries: "what reminders do i have", "show alarms", "list reminders"
+            if (lower.contains("alarm") || lower.contains("reminder") || lower.contains("timer")) {
+                return ParsedIntent("LIST_ALARMS")
+            }
+
+            // Journal / Diary queries: "show notes", "what did i journal", "read notes"
+            if (lower.contains("note") || lower.contains("journal") || lower.contains("diary")) {
+                return ParsedIntent("LIST_JOURNAL")
+            }
+
+            // Goal queries
+            if (lower.contains("goal")) {
+                return ParsedIntent("LIST_GOALS")
+            }
+
+            // Project queries
+            if (lower.contains("project")) {
+                return ParsedIntent("LIST_PROJECTS")
+            }
+
+            // Daily briefing queries: "what do i need to know today", "what's my summary"
+            if (lower.contains("briefing") || lower.contains("summary") || lower.contains("today") || lower.contains("agenda")) {
+                return ParsedIntent("DAILY_BRIEFING")
+            }
+
+            // Unhandled queries should NEVER be made into tasks!
+            return ParsedIntent(
+                intent = "UNKNOWN",
+                isNegationOrClarification = true,
+                confirmationPrompt = "I heard '$text'. I manage tasks, reminders, expenses, journal notes, and daily briefings. Which would you like?"
+            )
+        }
+
+        // 3. Daily Briefing
+        if (lower.contains("briefing") || lower.contains("morning summary") || lower == "daily summary") {
             return ParsedIntent("DAILY_BRIEFING")
         }
 
-        // 3. Complete All Tasks
+        // 4. Complete All Tasks
         if (lower.contains("complete all") || lower.contains("finish all") || lower.contains("mark all tasks complete") || lower.contains("complete everything")) {
             return ParsedIntent(
                 intent = "COMPLETE_ALL_TASKS",
                 requiresConfirmation = true,
                 confirmationPrompt = "Mark all pending tasks complete. Confirm?"
             )
-        }
-
-        // 4. Pending / Completed Tasks queries
-        if (lower.contains("pending tasks") || lower.contains("my tasks") || lower.contains("show tasks") || lower.contains("list tasks") || lower.contains("what do i need to do") || lower.contains("unfinished tasks")) {
-            return ParsedIntent("LIST_PENDING_TASKS")
-        }
-
-        if (lower.contains("completed tasks") || lower.contains("what have i finished") || lower.contains("finished tasks") || lower.contains("done tasks")) {
-            return ParsedIntent("LIST_COMPLETED_TASKS")
         }
 
         // 5. Complete Task (By ID or Title)
@@ -123,7 +173,30 @@ object DexterIntentRouter {
             }
         }
 
-        // 7. Finance / Expense & Income Logging
+        // 7. Alarms & Reminders (Supports time-first: "remind me at 5 PM regarding a team meeting")
+        val reminderMatch = extractReminder(text)
+        if (reminderMatch != null) {
+            val (label, epochMs) = reminderMatch
+            return ParsedIntent(
+                intent = "CREATE_ALARM",
+                parameters = mapOf(
+                    "label" to label,
+                    "alarmTime" to epochMs,
+                    "alarm_time" to epochMs
+                ),
+                requiresConfirmation = false
+            )
+        }
+
+        if (lower.contains("cancel alarms") || lower.contains("cancel all reminders") || lower.contains("turn off my alarms") || lower.contains("turn off alarms")) {
+            return ParsedIntent(
+                intent = "CANCEL_ALARMS",
+                requiresConfirmation = true,
+                confirmationPrompt = "Cancel all active alarms. Confirm?"
+            )
+        }
+
+        // 8. Finance / Expense & Income Logging
         val financeMatch = extractFinance(text)
         if (financeMatch != null) {
             return ParsedIntent(
@@ -140,11 +213,6 @@ object DexterIntentRouter {
             )
         }
 
-        // 8. Finance Summary
-        if (lower.contains("how much did i spend") || lower.contains("total expenses") || lower.contains("my spending") || lower.contains("summarize expenses") || lower.contains("expense summary") || lower.contains("what did i spend") || lower.contains("how much money")) {
-            return ParsedIntent("SUMMARIZE_EXPENSES")
-        }
-
         // 9. Journal / Note Logging
         val journalMatch = extractJournalNote(text)
         if (journalMatch != null) {
@@ -159,48 +227,16 @@ object DexterIntentRouter {
             )
         }
 
-        if (lower.contains("show notes") || lower.contains("read notes") || lower.contains("my notes") || lower.contains("show journal") || lower.contains("what did i journal") || lower.contains("list notes")) {
-            return ParsedIntent("LIST_JOURNAL")
-        }
-
-        // 10. Alarms & Reminders
-        if (lower.contains("show alarms") || lower.contains("show reminders") || lower.contains("my reminders") || lower.contains("list alarms") || lower.contains("what reminders do i have")) {
-            return ParsedIntent("LIST_ALARMS")
-        }
-
-        if (lower.contains("cancel alarms") || lower.contains("cancel all reminders") || lower.contains("turn off my alarms") || lower.contains("turn off alarms")) {
-            return ParsedIntent(
-                intent = "CANCEL_ALARMS",
-                requiresConfirmation = true,
-                confirmationPrompt = "Cancel all active alarms. Confirm?"
-            )
-        }
-
-        val reminderMatch = extractReminder(text)
-        if (reminderMatch != null) {
-            val (label, epochSecs) = reminderMatch
-            return ParsedIntent(
-                intent = "CREATE_ALARM",
-                parameters = mapOf("label" to label, "alarmTime" to epochSecs),
-                requiresConfirmation = true,
-                confirmationPrompt = "Set reminder '$label'. Confirm?"
-            )
-        }
-
-        // 11. Goals
+        // 10. Goals
         val goalMatch = extractGoal(text)
         if (goalMatch != null) {
             return ParsedIntent(
                 intent = "CREATE_GOAL",
-                parameters = mapOf("name" to goalMatch)
+                parameters = mapOf("name" to goalMatch, "title" to goalMatch)
             )
         }
 
-        if (lower.contains("show goals") || lower.contains("my goals") || lower.contains("list goals") || lower.contains("what are my goals")) {
-            return ParsedIntent("LIST_GOALS")
-        }
-
-        // 12. Projects
+        // 11. Projects
         val projectMatch = extractProject(text)
         if (projectMatch != null) {
             return ParsedIntent(
@@ -209,11 +245,7 @@ object DexterIntentRouter {
             )
         }
 
-        if (lower.contains("show projects") || lower.contains("my projects") || lower.contains("list projects") || lower.contains("active projects")) {
-            return ParsedIntent("LIST_PROJECTS")
-        }
-
-        // 13. Create Task (General)
+        // 12. Explicit Task Creation
         val taskTitleMatch = extractTaskCreation(text)
         if (taskTitleMatch != null) {
             val (title, priority) = taskTitleMatch
@@ -223,15 +255,21 @@ object DexterIntentRouter {
             )
         }
 
-        // Fallback: If user spoke something constructive like "Buy groceries", treat as quick task creation
-        if (text.length > 2 && !text.endsWith("?")) {
+        // 13. Actionable Imperatives (e.g. "buy groceries", "call electrician", "submit report")
+        if (isActionableImperative(lower)) {
+            val cleanTitle = text.replaceFirstChar { it.uppercase() }
             return ParsedIntent(
                 intent = "CREATE_TASK",
-                parameters = mapOf("title" to text, "priority" to Priority.NORMAL)
+                parameters = mapOf("title" to cleanTitle, "priority" to Priority.NORMAL)
             )
         }
 
-        return ParsedIntent("UNKNOWN", isNegationOrClarification = true)
+        // 14. Safe Fallback: NEVER turn random unrecognized phrases into tasks!
+        return ParsedIntent(
+            intent = "UNKNOWN",
+            isNegationOrClarification = true,
+            confirmationPrompt = "I heard '$text'. Did you want to create a task, set a reminder, or log an expense?"
+        )
     }
 
     private fun isNegation(lower: String): Boolean {
@@ -482,41 +520,95 @@ object DexterIntentRouter {
     }
 
     private fun extractReminder(text: String): Pair<String, Long>? {
-        val now = System.currentTimeMillis() / 1000
-
-        // "remind me in 30 minutes to take medicine"
-        val relPattern = Pattern.compile("remind me in\\s+(\\d+)\\s+(minute|minutes|hour|hours)\\s+(?:to\\s+)?(.+)", Pattern.CASE_INSENSITIVE)
+        // 1. Relative: "remind me in 30 minutes to take medicine", "in 1 hour about meeting"
+        val relPattern = Pattern.compile("(?:remind me in|alert me in|in)\\s+(\\d+)\\s*(minute|minutes|min|mins|hour|hours)\\s+(?:to\\s+|about\\s+|for\\s+|regarding\\s+)?(.+)", Pattern.CASE_INSENSITIVE)
         val mRel = relPattern.matcher(text)
         if (mRel.find()) {
             val amount = mRel.group(1)?.toLongOrNull() ?: 10L
             val unit = mRel.group(2)?.lowercase() ?: "minute"
-            val label = mRel.group(3)?.trim() ?: "Reminder"
-            val secs = if (unit.startsWith("hour")) amount * 3600 else amount * 60
-            return Pair(label, now + secs)
+            var label = mRel.group(3)?.trim() ?: "Reminder"
+            label = cleanReminderLabel(label)
+            val ms = if (unit.startsWith("hour")) amount * 3600000L else amount * 60000L
+            return Pair(label, System.currentTimeMillis() + ms)
         }
 
-        // "remind me to call mom at 5 PM" or "set an alarm for 7 AM"
-        val absPattern = Pattern.compile("(?:remind me to\\s+(.+?)\\s+at|set an? alarm (?:for|at)\\s+)(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?", Pattern.CASE_INSENSITIVE)
-        val mAbs = absPattern.matcher(text)
-        if (mAbs.find()) {
-            val label = mAbs.group(1)?.trim() ?: "Alarm"
-            val hour = mAbs.group(2)?.toIntOrNull() ?: 8
-            val amPm = mAbs.group(4)?.lowercase() ?: ""
-            var hour24 = hour
-            if (amPm == "pm" && hour24 < 12) hour24 += 12
-            if (amPm == "am" && hour24 == 12) hour24 = 0
+        // 2. Time-First: "remind me at 5 PM regarding a team meeting", "set a reminder at 5:30 PM for team meeting", "remind me for 5 PM to call mom"
+        val timeFirstPattern = Pattern.compile("(?:remind me|set a reminder|set an? alarm|alert me)\\s+(?:at|for)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\s+(?:regarding|about|for|to)\\s+(.+)", Pattern.CASE_INSENSITIVE)
+        val mTimeFirst = timeFirstPattern.matcher(text)
+        if (mTimeFirst.find()) {
+            val hour = mTimeFirst.group(1)?.toIntOrNull() ?: 8
+            val min = mTimeFirst.group(2)?.toIntOrNull() ?: 0
+            val amPm = mTimeFirst.group(3) ?: ""
+            var label = mTimeFirst.group(4)?.trim() ?: "Reminder"
+            label = cleanReminderLabel(label)
+            return Pair(label, computeAlarmEpochMs(hour, min, amPm))
+        }
 
-            val cal = java.util.Calendar.getInstance()
-            cal.set(java.util.Calendar.HOUR_OF_DAY, hour24)
-            cal.set(java.util.Calendar.MINUTE, 0)
-            cal.set(java.util.Calendar.SECOND, 0)
-            if (cal.timeInMillis / 1000 <= now) {
-                cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
-            }
-            return Pair(label, cal.timeInMillis / 1000)
+        // 3. Action-First: "remind me to call mom at 5 PM", "set a reminder to submit code at 4:30 PM"
+        val actionFirstPattern = Pattern.compile("(?:remind me to|set a reminder to)\\s+(.+?)\\s+(?:at|for)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?$", Pattern.CASE_INSENSITIVE)
+        val mActionFirst = actionFirstPattern.matcher(text)
+        if (mActionFirst.find()) {
+            var label = mActionFirst.group(1)?.trim() ?: "Reminder"
+            val hour = mActionFirst.group(2)?.toIntOrNull() ?: 8
+            val min = mActionFirst.group(3)?.toIntOrNull() ?: 0
+            val amPm = mActionFirst.group(4) ?: ""
+            label = cleanReminderLabel(label)
+            return Pair(label, computeAlarmEpochMs(hour, min, amPm))
+        }
+
+        // 4. Alarm-style: "set an alarm for 6:30 AM", "wake me up at 6 AM", "set alarm at 7 AM called Workout"
+        val alarmPattern = Pattern.compile("(?:set an? alarm (?:for|at)|wake me up at)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?(?:\\s+(?:for|to|called|titled)\\s+(.+))?", Pattern.CASE_INSENSITIVE)
+        val mAlarm = alarmPattern.matcher(text)
+        if (mAlarm.find()) {
+            val hour = mAlarm.group(1)?.toIntOrNull() ?: 7
+            val min = mAlarm.group(2)?.toIntOrNull() ?: 0
+            val amPm = mAlarm.group(3) ?: ""
+            var label = mAlarm.group(4)?.trim() ?: "Alarm"
+            label = cleanReminderLabel(label)
+            return Pair(label, computeAlarmEpochMs(hour, min, amPm))
         }
 
         return null
+    }
+
+    private fun cleanReminderLabel(raw: String): String {
+        var clean = raw.trim().replace(Regex("^(?:regarding|about|for|to)\\s+", RegexOption.IGNORE_CASE), "")
+        clean = clean.replace(Regex("^(?:a|an)\\s+", RegexOption.IGNORE_CASE), "")
+        if (clean.isBlank()) clean = "Reminder"
+        return clean.replaceFirstChar { it.uppercase() }
+    }
+
+    private fun computeAlarmEpochMs(hour: Int, minute: Int, amPm: String): Long {
+        val nowMs = System.currentTimeMillis()
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = nowMs
+        var hour24 = hour
+        val ap = amPm.lowercase().trim()
+        if (ap == "pm" && hour24 < 12) hour24 += 12
+        if (ap == "am" && hour24 == 12) hour24 = 0
+        if (ap.isEmpty() && hour24 in 1..7 && cal.get(java.util.Calendar.HOUR_OF_DAY) >= 12) {
+            hour24 += 12
+        }
+
+        cal.set(java.util.Calendar.HOUR_OF_DAY, hour24)
+        cal.set(java.util.Calendar.MINUTE, minute)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+
+        if (cal.timeInMillis <= nowMs) {
+            cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        }
+        return cal.timeInMillis
+    }
+
+    private fun isActionableImperative(lower: String): Boolean {
+        val actionVerbs = listOf(
+            "buy", "purchase", "call", "email", "message", "send", "submit", "pay",
+            "clean", "prepare", "order", "book", "schedule", "check", "fix", "repair",
+            "read", "write", "study", "review", "pick up", "bring", "finish", "complete",
+            "organize", "update", "cancel"
+        )
+        return actionVerbs.any { lower.startsWith("$it ") || lower == it }
     }
 
     private fun extractGoal(text: String): String? {
