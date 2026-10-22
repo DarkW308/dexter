@@ -14,6 +14,8 @@ class DexterViewModel(application: Application) : AndroidViewModel(application) 
     val repository = DexterRepository(application)
     val speechManager = DexterSpeechManager(application)
     val actionExecutor = DexterActionExecutor(repository, application)
+    val layaEngine = LayaEngine.getInstance(application)
+    val needlePlanner = NeedlePlannerEngine(application, repository)
 
     // Navigation Tab (0: Home, 1: Tasks, 2: Finance, 3: Journal, 4: More)
     private val _selectedTab = MutableStateFlow(0)
@@ -64,6 +66,8 @@ class DexterViewModel(application: Application) : AndroidViewModel(application) 
     val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
 
     init {
+        layaEngine.initialize()
+
         speechManager.onSpeechResult = { recognizedText ->
             processUserPhrase(recognizedText)
         }
@@ -98,14 +102,58 @@ class DexterViewModel(application: Application) : AndroidViewModel(application) 
     fun processUserPhrase(phrase: String) {
         viewModelScope.launch {
             speechManager.setVisualState(OrbVisualState.PROCESSING)
-            val parsed = DexterIntentRouter.parse(phrase)
+            val clean = DexterIntentRouter.stripWakeWord(phrase).trim()
+            val lower = clean.lowercase()
 
-            if (parsed.requiresConfirmation && !parsed.isNegationOrClarification) {
-                _pendingConfirmation.value = parsed
+            // 1. Long-Form Planning & Generative Task Decomposition (Needle 3 - Cactus-Compute/needle3)
+            // e.g. "Plan gym routine with 3 days workout", "Break down my seminar into a 4-week plan"
+            if (layaEngine.isLongFormPlanning(lower)) {
+                // Immediate Foreground Handshake (< 200 ms)
+                val handshakeMsg = "Got it! I'm planning that in the background. I'll notify you in your Attention Feed when your schedule is ready."
+                speechManager.speak(handshakeMsg)
                 speechManager.setVisualState(OrbVisualState.IDLE)
-                speechManager.speak(parsed.confirmationPrompt ?: "Confirm action?")
-            } else {
+                _snackbarMessage.value = "Queued background plan: '$clean'"
+
+                // Asynchronous synthesis job running during idle time
+                needlePlanner.scheduleBackgroundPlan(topic = clean, originalPrompt = phrase) { plan ->
+                    _snackbarMessage.value = plan.notificationTitle
+                }
+                return@launch
+            }
+
+            // 2. Tier 1 Fast-Path (Pure Kotlin Smart Rule Engine < 1 ms, 0 MB RAM)
+            val parsed = DexterIntentRouter.parse(phrase)
+            if (!parsed.isNegationOrClarification && parsed.intent != "UNKNOWN") {
+                if (parsed.requiresConfirmation) {
+                    _pendingConfirmation.value = parsed
+                    speechManager.setVisualState(OrbVisualState.IDLE)
+                    speechManager.speak(parsed.confirmationPrompt ?: "Confirm action?")
+                } else {
+                    executeIntent(parsed)
+                }
+                return@launch
+            }
+
+            // 3. Tier 2 Laya (convaiinnovations/laya) Calibrated Decision & Slot Filler
+            val layaResult = layaEngine.classify(phrase)
+            if (layaResult.confidence >= 0.70f && layaResult.intent != "UNKNOWN") {
+                val layaIntent = ParsedIntent(
+                    intent = layaResult.intent,
+                    parameters = layaResult.slots,
+                    confidence = layaResult.confidence
+                )
+                executeIntent(layaIntent)
+                return@launch
+            }
+
+            // 4. Safe Clarification Fallback (Never swallow ambiguous inputs as tasks)
+            if (parsed.isNegationOrClarification && parsed.intent == "NEGATION_SAFETY") {
                 executeIntent(parsed)
+            } else {
+                speechManager.setVisualState(OrbVisualState.IDLE)
+                val clarify = "I heard '$clean'. Would you like me to create a task, set a reminder, or log an expense?"
+                speechManager.speak(clarify)
+                _snackbarMessage.value = clarify
             }
         }
     }

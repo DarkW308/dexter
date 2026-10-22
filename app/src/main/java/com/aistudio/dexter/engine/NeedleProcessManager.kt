@@ -71,6 +71,16 @@ class NeedleProcessManager(private val context: Context) {
                 }
             }
 
+            val cactDestination = File(context.filesDir, "needle3.cact")
+            if (!cactDestination.exists() && list.contains("needle3.cact")) {
+                assetManager.open("needle/needle3.cact").use { input ->
+                    FileOutputStream(cactDestination).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.i(TAG, "Unpacked bundled default Needle 3 weights (${cactDestination.length() / (1024 * 1024)} MB)")
+            }
+
             // Set executable chmod 755
             destination.setReadable(true, false)
             destination.setExecutable(true, false)

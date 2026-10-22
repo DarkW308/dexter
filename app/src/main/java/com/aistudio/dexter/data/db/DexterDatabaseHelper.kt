@@ -9,7 +9,7 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
 
     companion object {
         const val DATABASE_NAME = "dexter.db"
-        const val DATABASE_VERSION = 3
+        const val DATABASE_VERSION = 4
         private const val TAG = "DexterDatabaseHelper"
 
         @Volatile
@@ -154,6 +154,8 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
                     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
                 )
             """)
+            ensureColumn(db, "relationship_people", "notes", "TEXT NOT NULL DEFAULT ''")
+            ensureColumn(db, "relationship_people", "last_contacted_text", "TEXT NOT NULL DEFAULT 'Recently'")
 
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS relationship_interactions (
@@ -184,18 +186,26 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
                     duration_text TEXT NOT NULL DEFAULT '7h 30m',
                     quality_rating INTEGER NOT NULL DEFAULT 4,
                     quality_label TEXT NOT NULL DEFAULT 'Restful',
+                    notes TEXT NOT NULL DEFAULT '',
                     logged_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
                 )
             """)
+            ensureColumn(db, "wellbeing_sleep", "notes", "TEXT NOT NULL DEFAULT ''")
+            ensureColumn(db, "wellbeing_sleep", "duration_text", "TEXT NOT NULL DEFAULT '7h 30m'")
+            ensureColumn(db, "wellbeing_sleep", "quality_rating", "INTEGER NOT NULL DEFAULT 4")
+            ensureColumn(db, "wellbeing_sleep", "quality_label", "TEXT NOT NULL DEFAULT 'Restful'")
 
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS wellbeing_mood (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     mood TEXT NOT NULL,
                     energy_level TEXT NOT NULL DEFAULT 'Medium',
+                    note TEXT NOT NULL DEFAULT '',
                     logged_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
                 )
             """)
+            ensureColumn(db, "wellbeing_mood", "note", "TEXT NOT NULL DEFAULT ''")
+            ensureColumn(db, "wellbeing_mood", "energy_level", "TEXT NOT NULL DEFAULT 'Medium'")
 
             // Segment 10: Habits & Streaks
             db.execSQL("""
@@ -210,6 +220,8 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
                     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
                 )
             """)
+            ensureColumn(db, "wellbeing_habits", "last_completed_at", "INTEGER NOT NULL DEFAULT 0")
+            ensureColumn(db, "wellbeing_habits", "reminder_time", "TEXT NOT NULL DEFAULT '08:00 AM'")
 
             // Segment 11: Reading & Knowledge Vault (Local RAG / Notes)
             db.execSQL("""

@@ -51,62 +51,9 @@ object DexterIntentRouter {
         }
 
         // 2. Interrogative Voice Query Guard (Android STT never includes '?')
-        val isQuery = lower.startsWith("what") || lower.startsWith("which") ||
-                lower.startsWith("how") || lower.startsWith("when") ||
-                lower.startsWith("where") || lower.startsWith("who") ||
-                lower.startsWith("show") || lower.startsWith("list") ||
-                lower.startsWith("tell me") || lower.startsWith("do i have") ||
-                lower.startsWith("are there") || lower.startsWith("any ") ||
-                lower.contains("pending") || text.endsWith("?")
-
-        if (isQuery) {
-            // Task queries: "what are all the pending tasks today", "what tasks do i have", "show completed tasks"
-            if (lower.contains("task") || lower.contains("todo") || lower.contains("pending") ||
-                lower.contains("to do") || lower.contains("to-do") || lower.contains("what do i need to do") ||
-                lower.contains("unfinished") || lower.contains("work")) {
-                if (lower.contains("completed") || lower.contains("finished") || lower.contains("done") || lower.contains("finished tasks")) {
-                    return ParsedIntent("LIST_COMPLETED_TASKS")
-                }
-                return ParsedIntent("LIST_PENDING_TASKS")
-            }
-
-            // Finance queries: "how much did i spend", "what did i spend today", "show expenses"
-            if (lower.contains("spend") || lower.contains("spent") || lower.contains("expense") ||
-                lower.contains("money") || lower.contains("spending") || lower.contains("cost") || lower.contains("balance")) {
-                return ParsedIntent("SUMMARIZE_EXPENSES")
-            }
-
-            // Alarm / Reminder queries: "what reminders do i have", "show alarms", "list reminders"
-            if (lower.contains("alarm") || lower.contains("reminder") || lower.contains("timer")) {
-                return ParsedIntent("LIST_ALARMS")
-            }
-
-            // Journal / Diary queries: "show notes", "what did i journal", "read notes"
-            if (lower.contains("note") || lower.contains("journal") || lower.contains("diary")) {
-                return ParsedIntent("LIST_JOURNAL")
-            }
-
-            // Goal queries
-            if (lower.contains("goal")) {
-                return ParsedIntent("LIST_GOALS")
-            }
-
-            // Project queries
-            if (lower.contains("project")) {
-                return ParsedIntent("LIST_PROJECTS")
-            }
-
-            // Daily briefing queries: "what do i need to know today", "what's my summary"
-            if (lower.contains("briefing") || lower.contains("summary") || lower.contains("today") || lower.contains("agenda")) {
-                return ParsedIntent("DAILY_BRIEFING")
-            }
-
-            // Unhandled queries should NEVER be made into tasks!
-            return ParsedIntent(
-                intent = "UNKNOWN",
-                isNegationOrClarification = true,
-                confirmationPrompt = "I heard '$text'. I manage tasks, reminders, expenses, journal notes, and daily briefings. Which would you like?"
-            )
+        val queryIntent = interrogativeQueryGuard(lower, text)
+        if (queryIntent != null) {
+            return queryIntent
         }
 
         // 3. Daily Briefing
@@ -571,9 +518,75 @@ object DexterIntentRouter {
         return null
     }
 
+    fun isInterrogativeQuery(rawInput: String): Boolean {
+        val lower = stripWakeWord(rawInput).lowercase().trim()
+        if (rawInput.trim().endsWith("?")) return true
+        return lower.startsWith("what") || lower.startsWith("which") ||
+                lower.startsWith("how") || lower.startsWith("when") ||
+                lower.startsWith("where") || lower.startsWith("who") ||
+                lower.startsWith("show") || lower.startsWith("list") ||
+                lower.startsWith("tell me") || lower.startsWith("do i have") ||
+                lower.startsWith("are there") || lower.startsWith("any ") ||
+                Regex("\\b(what|show|list|do i have|how much|tell me)\\b").containsMatchIn(lower) ||
+                lower.contains("pending")
+    }
+
+    fun interrogativeQueryGuard(lower: String, text: String): ParsedIntent? {
+        val cleanLower = lower.lowercase().trim()
+        if (!isInterrogativeQuery(cleanLower) && !cleanLower.endsWith("?") && !text.endsWith("?")) {
+            return null
+        }
+
+        // 1. Finance queries (check before tasks so "spending" is not caught by "pending")
+        if (cleanLower.contains(Regex("\\b(spend|spent|expense|expenses|spending|cost|costs|money|budget|balance)\\b"))) {
+            return ParsedIntent("SUMMARIZE_EXPENSES")
+        }
+
+        // 2. Task queries: "what are all the pending tasks today", "what tasks do i have", "show completed tasks"
+        if (cleanLower.contains(Regex("\\b(tasks?|todos?|pending|to do|to-do|work|agenda|unfinished)\\b")) ||
+            cleanLower.contains("what do i need to do") || cleanLower.contains("what do i have to do") ||
+            cleanLower.contains("what have i finished") || cleanLower.contains("do i have any tasks")) {
+            if (cleanLower.contains("completed") || cleanLower.contains("finished") || cleanLower.contains("done")) {
+                return ParsedIntent("LIST_COMPLETED_TASKS")
+            }
+            return ParsedIntent("LIST_PENDING_TASKS")
+        }
+
+        // 3. Alarm / Reminder queries: "what reminders do i have", "show alarms", "list reminders"
+        if (cleanLower.contains(Regex("\\b(alarms?|reminders?|timers?)\\b"))) {
+            return ParsedIntent("LIST_ALARMS")
+        }
+
+        // 4. Journal / Diary queries: "show notes", "what did i journal", "read notes"
+        if (cleanLower.contains(Regex("\\b(notes?|journal|diary|log)\\b"))) {
+            return ParsedIntent("LIST_JOURNAL")
+        }
+
+        // 5. Goal queries
+        if (cleanLower.contains(Regex("\\b(goals?)\\b"))) {
+            return ParsedIntent("LIST_GOALS")
+        }
+
+        // 6. Project queries
+        if (cleanLower.contains(Regex("\\b(projects?)\\b"))) {
+            return ParsedIntent("LIST_PROJECTS")
+        }
+
+        // 7. Daily briefing queries: "what do i need to know today", "what's my summary"
+        if (cleanLower.contains(Regex("\\b(briefing|morning summary|daily summary|summary|schedule)\\b"))) {
+            return ParsedIntent("DAILY_BRIEFING")
+        }
+
+        // Unhandled queries should NEVER be made into tasks!
+        return ParsedIntent(
+            intent = "UNKNOWN",
+            isNegationOrClarification = true,
+            confirmationPrompt = "I heard '$text'. I manage tasks, reminders, expenses, journal notes, and daily briefings. Which would you like?"
+        )
+    }
+
     private fun cleanReminderLabel(raw: String): String {
         var clean = raw.trim().replace(Regex("^(?:regarding|about|for|to)\\s+", RegexOption.IGNORE_CASE), "")
-        clean = clean.replace(Regex("^(?:a|an)\\s+", RegexOption.IGNORE_CASE), "")
         if (clean.isBlank()) clean = "Reminder"
         return clean.replaceFirstChar { it.uppercase() }
     }

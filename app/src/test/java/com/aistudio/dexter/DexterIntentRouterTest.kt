@@ -135,7 +135,7 @@ class DexterIntentRouterTest {
     fun testCommandsStillCreateProperActions() {
         val taskIntent = DexterIntentRouter.parse("buy groceries")
         assertEquals("CREATE_TASK", taskIntent.intent)
-        assertEquals("buy groceries", taskIntent.parameters["title"])
+        assertEquals("Buy groceries", taskIntent.parameters["title"])
 
         val expenseIntent = DexterIntentRouter.parse("spent 45 on traveling")
         assertEquals("LOG_EXPENSE", expenseIntent.intent)

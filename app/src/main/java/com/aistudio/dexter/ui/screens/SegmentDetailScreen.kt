@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.aistudio.dexter.data.model.*
 import com.aistudio.dexter.data.repository.DexterRepository
+import com.aistudio.dexter.ui.components.ClockTime
+import com.aistudio.dexter.ui.components.ModernClockTimePicker
 import com.aistudio.dexter.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1019,9 +1021,7 @@ private fun AlarmsRemindersView(
 
     if (showSetAlarmSheet) {
         var label by remember { mutableStateOf("") }
-        var hour by remember { mutableStateOf("06") }
-        var minute by remember { mutableStateOf("30") }
-        var isAm by remember { mutableStateOf(true) }
+        var alarmTime by remember { mutableStateOf(ClockTime(6, 30)) }
         var repeatDays by remember { mutableStateOf("Mon, Wed, Fri") }
         var vibrate by remember { mutableStateOf(true) }
 
@@ -1030,35 +1030,19 @@ private fun AlarmsRemindersView(
             containerColor = DexterSurface,
             title = { Text("Set Alarm / Reminder", color = DexterOnBackground, fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = hour,
-                            onValueChange = { hour = it.take(2) },
-                            modifier = Modifier.width(60.dp),
-                            textStyle = LocalTextStyle.current.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontSize = 20.sp),
-                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ModernClockTimePicker(
+                        label = "SET ALARM TIME",
+                        time = alarmTime,
+                        onTimeChanged = { alarmTime = it },
+                        presets = listOf(
+                            "⏰ 06:30 AM" to ClockTime(6, 30),
+                            "⏰ 07:00 AM" to ClockTime(7, 0),
+                            "⏰ 08:00 AM" to ClockTime(8, 0),
+                            "⏰ 09:30 AM" to ClockTime(9, 30),
+                            "🌙 10:00 PM" to ClockTime(22, 0)
                         )
-                        Text(" : ", color = DexterOnBackground, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                        OutlinedTextField(
-                            value = minute,
-                            onValueChange = { minute = it.take(2) },
-                            modifier = Modifier.width(60.dp),
-                            textStyle = LocalTextStyle.current.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontSize = 20.sp),
-                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Button(
-                            onClick = { isAm = !isAm },
-                            colors = ButtonDefaults.buttonColors(containerColor = DexterSurfaceVariant)
-                        ) {
-                            Text(if (isAm) "AM" else "PM", color = DexterPrimary)
-                        }
-                    }
+                    )
 
                     OutlinedTextField(
                         value = label,
@@ -1093,15 +1077,8 @@ private fun AlarmsRemindersView(
             confirmButton = {
                 Button(
                     onClick = {
-                        val h = (hour.toIntOrNull() ?: 6).coerceIn(1, 12)
-                        val m = (minute.toIntOrNull() ?: 30).coerceIn(0, 59)
-                        val cal = java.util.Calendar.getInstance().apply {
-                            set(java.util.Calendar.HOUR, if (h == 12) 0 else h)
-                            set(java.util.Calendar.AM_PM, if (isAm) java.util.Calendar.AM else java.util.Calendar.PM)
-                            set(java.util.Calendar.MINUTE, m)
-                            set(java.util.Calendar.SECOND, 0)
-                        }
-                        repository.createAlarm(cal.timeInMillis, label.ifBlank { "Alarm" }, repeatDays, vibrate)
+                        val alarmMillis = alarmTime.toMillisToday()
+                        repository.createAlarm(alarmMillis, label.ifBlank { "Alarm" }, repeatDays, vibrate)
                         showSetAlarmSheet = false
                         onRefresh()
                     },
@@ -1259,8 +1236,8 @@ private fun ScheduleTimetableView(
 
     if (showAddBlockDialog) {
         var title by remember { mutableStateOf("") }
-        var startTime by remember { mutableStateOf("10:00 AM") }
-        var endTime by remember { mutableStateOf("11:00 AM") }
+        var startClock by remember { mutableStateOf(ClockTime(10, 0)) }
+        var endClock by remember { mutableStateOf(ClockTime(11, 0)) }
         var category by remember { mutableStateOf("Deep Work") }
         var location by remember { mutableStateOf("") }
 
@@ -1269,7 +1246,7 @@ private fun ScheduleTimetableView(
             containerColor = DexterSurface,
             title = { Text("Add Schedule Block", color = DexterOnBackground, fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
                         value = title,
                         onValueChange = { title = it },
@@ -1277,22 +1254,37 @@ private fun ScheduleTimetableView(
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = startTime,
-                            onValueChange = { startTime = it },
-                            label = { Text("Start Time") },
-                            modifier = Modifier.weight(1f),
-                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
+
+                    ModernClockTimePicker(
+                        label = "START TIME",
+                        time = startClock,
+                        onTimeChanged = { picked ->
+                            startClock = picked
+                            if (endClock.hour24 < picked.hour24 || (endClock.hour24 == picked.hour24 && endClock.minute <= picked.minute)) {
+                                endClock = ClockTime((picked.hour24 + 1) % 24, picked.minute)
+                            }
+                        },
+                        presets = listOf(
+                            "Now" to ClockTime.now(),
+                            "09:00 AM" to ClockTime(9, 0),
+                            "10:00 AM" to ClockTime(10, 0),
+                            "02:00 PM" to ClockTime(14, 0),
+                            "04:30 PM" to ClockTime(16, 30)
                         )
-                        OutlinedTextField(
-                            value = endTime,
-                            onValueChange = { endTime = it },
-                            label = { Text("End Time") },
-                            modifier = Modifier.weight(1f),
-                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
+                    )
+
+                    ModernClockTimePicker(
+                        label = "END TIME",
+                        time = endClock,
+                        onTimeChanged = { endClock = it },
+                        presets = listOf(
+                            "+30m" to ClockTime(startClock.hour24 + (if (startClock.minute + 30 >= 60) 1 else 0), (startClock.minute + 30) % 60),
+                            "+1h" to ClockTime((startClock.hour24 + 1) % 24, startClock.minute),
+                            "+2h" to ClockTime((startClock.hour24 + 2) % 24, startClock.minute),
+                            "05:00 PM" to ClockTime(17, 0)
                         )
-                    }
+                    )
+
                     OutlinedTextField(
                         value = category,
                         onValueChange = { category = it },
@@ -1318,7 +1310,14 @@ private fun ScheduleTimetableView(
                                 "meeting" -> "#FFAB40"
                                 else -> "#4FC3F7"
                             }
-                            repository.createScheduleBlock(title, startTime, endTime, category, colorHex, location)
+                            repository.createScheduleBlock(
+                                title,
+                                startClock.formattedString,
+                                endClock.formattedString,
+                                category,
+                                colorHex,
+                                location
+                            )
                             showAddBlockDialog = false
                             onRefresh()
                         }
@@ -1842,48 +1841,78 @@ private fun HealthWellbeingView(
     }
 
     if (showSleepDialog) {
-        var bedtime by remember { mutableStateOf("11:30 PM") }
-        var waketime by remember { mutableStateOf("06:50 AM") }
-        var duration by remember { mutableStateOf("7h 20m") }
+        var bedClock by remember { mutableStateOf(ClockTime(23, 30)) }
+        var wakeClock by remember { mutableStateOf(ClockTime(6, 50)) }
         var rating by remember { mutableStateOf(5) }
         var qualityLabel by remember { mutableStateOf("Restful") }
+
+        val computedDuration by remember(bedClock, wakeClock) {
+            derivedStateOf {
+                var diffMinutes = (wakeClock.hour24 * 60 + wakeClock.minute) - (bedClock.hour24 * 60 + bedClock.minute)
+                if (diffMinutes < 0) diffMinutes += 24 * 60
+                val h = diffMinutes / 60
+                val m = diffMinutes % 60
+                "${h}h ${m}m"
+            }
+        }
 
         AlertDialog(
             onDismissRequest = { showSleepDialog = false },
             containerColor = DexterSurface,
             title = { Text("Log Sleep", color = DexterOnBackground, fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = bedtime,
-                            onValueChange = { bedtime = it },
-                            label = { Text("Bedtime") },
-                            modifier = Modifier.weight(1f),
-                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ModernClockTimePicker(
+                        label = "BEDTIME",
+                        time = bedClock,
+                        onTimeChanged = { bedClock = it },
+                        presets = listOf(
+                            "10:30 PM" to ClockTime(22, 30),
+                            "11:00 PM" to ClockTime(23, 0),
+                            "11:30 PM" to ClockTime(23, 30),
+                            "12:00 AM" to ClockTime(0, 0)
                         )
-                        OutlinedTextField(
-                            value = waketime,
-                            onValueChange = { waketime = it },
-                            label = { Text("Wake Time") },
-                            modifier = Modifier.weight(1f),
-                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
+                    )
+
+                    ModernClockTimePicker(
+                        label = "WAKE TIME",
+                        time = wakeClock,
+                        onTimeChanged = { wakeClock = it },
+                        presets = listOf(
+                            "06:00 AM" to ClockTime(6, 0),
+                            "06:30 AM" to ClockTime(6, 30),
+                            "07:00 AM" to ClockTime(7, 0),
+                            "07:30 AM" to ClockTime(7, 30)
+                        )
+                    )
+
+                    // Auto-calculated duration badge
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(DexterPrimary.copy(alpha = 0.12f))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Calculated Duration:", color = Color(0xFFA0A5BD), fontSize = 13.sp)
+                        Text(
+                            text = "⏱ $computedDuration",
+                            color = DexterPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
                         )
                     }
-                    OutlinedTextField(
-                        value = duration,
-                        onValueChange = { duration = it },
-                        label = { Text("Duration (e.g. 7h 20m)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
-                    )
+
                     OutlinedTextField(
                         value = qualityLabel,
                         onValueChange = { qualityLabel = it },
-                        label = { Text("Quality (Restful / Light / Interrupted)") },
+                        label = { Text("Quality (Restful / Light / Deep)") },
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
                     )
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Rating (1-5): ", color = DexterOnBackground)
                         (1..5).forEach { star ->
@@ -1901,7 +1930,7 @@ private fun HealthWellbeingView(
             confirmButton = {
                 Button(
                     onClick = {
-                        repository.logSleep(bedtime, waketime, duration, rating, qualityLabel, "")
+                        repository.logSleep(bedClock.formattedString, wakeClock.formattedString, computedDuration, rating, qualityLabel, "")
                         showSleepDialog = false
                         onRefresh()
                     },
@@ -2062,14 +2091,14 @@ private fun HabitsStreaksView(
     if (showAddHabitDialog) {
         var name by remember { mutableStateOf("") }
         var frequency by remember { mutableStateOf("Daily") }
-        var reminderTime by remember { mutableStateOf("08:00 AM") }
+        var reminderClock by remember { mutableStateOf(ClockTime(8, 0)) }
 
         AlertDialog(
             onDismissRequest = { showAddHabitDialog = false },
             containerColor = DexterSurface,
             title = { Text("New Habit", color = DexterOnBackground, fontWeight = FontWeight.Bold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
@@ -2077,6 +2106,7 @@ private fun HabitsStreaksView(
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
                     )
+
                     OutlinedTextField(
                         value = frequency,
                         onValueChange = { frequency = it },
@@ -2084,12 +2114,18 @@ private fun HabitsStreaksView(
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
                     )
-                    OutlinedTextField(
-                        value = reminderTime,
-                        onValueChange = { reminderTime = it },
-                        label = { Text("Reminder Time") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = DexterOnBackground, unfocusedTextColor = DexterOnBackground)
+
+                    ModernClockTimePicker(
+                        label = "REMINDER TIME",
+                        time = reminderClock,
+                        onTimeChanged = { reminderClock = it },
+                        presets = listOf(
+                            "🌅 07:00 AM" to ClockTime(7, 0),
+                            "☀️ 08:00 AM" to ClockTime(8, 0),
+                            "🥪 12:30 PM" to ClockTime(12, 30),
+                            "🌆 06:00 PM" to ClockTime(18, 0),
+                            "🌙 09:30 PM" to ClockTime(21, 30)
+                        )
                     )
                 }
             },
@@ -2097,7 +2133,7 @@ private fun HabitsStreaksView(
                 Button(
                     onClick = {
                         if (name.isNotBlank()) {
-                            repository.createHabit(name, frequency, reminderTime)
+                            repository.createHabit(name, frequency, reminderClock.formattedString)
                             showAddHabitDialog = false
                             onRefresh()
                         }

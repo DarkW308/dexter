@@ -11,7 +11,8 @@ class DexterActionExecutor(
     private val alarmRepo: AlarmRepository,
     private val journalRepo: JournalRepository,
     private val auditRepo: AuditRepository,
-    private val repository: DexterRepository
+    private val repository: DexterRepository,
+    private val context: Context? = null
 ) {
 
     constructor(context: Context) : this(
@@ -20,7 +21,8 @@ class DexterActionExecutor(
         alarmRepo = AlarmRepository(context),
         journalRepo = JournalRepository(context),
         auditRepo = AuditRepository(context),
-        repository = DexterRepository(context)
+        repository = DexterRepository(context),
+        context = context
     )
 
     constructor(repository: DexterRepository, context: Context) : this(
@@ -29,7 +31,8 @@ class DexterActionExecutor(
         alarmRepo = AlarmRepository(context),
         journalRepo = JournalRepository(context),
         auditRepo = AuditRepository(context),
-        repository = repository
+        repository = repository,
+        context = context
     )
 
     /**
@@ -431,6 +434,40 @@ class DexterActionExecutor(
                     entityType = "ALARM",
                     entityId = alarm.id,
                     data = mapOf("alarm" to alarm)
+                )
+            }
+
+            // 20. LOG_INTERACTION (People & Relationships - Segment 8)
+            "LOG_INTERACTION" -> {
+                val person = action.parameters["person"] as? String ?: "Contact"
+                val topic = action.parameters["topic"] as? String ?: "Conversation"
+                val type = action.parameters["interactionType"] as? String ?: "Call"
+                val contactId = repository.createPerson(name = person, relationType = "Acquaintance")
+                repository.createInteraction(personId = contactId, note = topic, interactionType = type)
+                ActionResult(
+                    success = true,
+                    intent = "LOG_INTERACTION",
+                    message = "Logged $type with $person regarding $topic.",
+                    entityType = "RELATIONSHIP",
+                    entityId = contactId
+                )
+            }
+
+            // 21. DECOMPOSE_PLAN_ASYNC (Needle 3 Async Generative Synthesis - Dual-Engine)
+            "DECOMPOSE_PLAN_ASYNC" -> {
+                val topic = action.parameters["topic"] as? String ?: "Personal Plan"
+                val originalPrompt = action.parameters["original_prompt"] as? String ?: topic
+                val ctx = context
+                if (ctx != null) {
+                    val planner = NeedlePlannerEngine(ctx, repository)
+                    planner.scheduleBackgroundPlan(topic, originalPrompt)
+                }
+                ActionResult(
+                    success = true,
+                    intent = "DECOMPOSE_PLAN_ASYNC",
+                    message = "I've queued that. I'm building your roadmap for '$topic' in the background.",
+                    entityType = "PLAN",
+                    data = mapOf("topic" to topic)
                 )
             }
 

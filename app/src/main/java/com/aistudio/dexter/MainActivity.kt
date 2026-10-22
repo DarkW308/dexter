@@ -16,18 +16,23 @@ import com.aistudio.dexter.data.repository.DexterRepository
 import com.aistudio.dexter.databinding.ActivityMainBinding
 import com.aistudio.dexter.engine.DexterActionExecutor
 import com.aistudio.dexter.engine.DexterSpeechManager
+import com.aistudio.dexter.engine.LayaEngine
 import com.aistudio.dexter.engine.OrbVisualState
 import com.aistudio.dexter.service.DexterVoiceService
 import com.aistudio.dexter.ui.activity.FinanceActivity
 import com.aistudio.dexter.ui.activity.JournalActivity
 import com.aistudio.dexter.ui.activity.SegmentsActivity
 import com.aistudio.dexter.ui.activity.TasksActivity
+import com.aistudio.dexter.ui.dialog.ModelManagerDialog
 import com.aistudio.dexter.ui.view.VoiceInteractionDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.app.TimePickerDialog
+import android.widget.EditText
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -193,7 +198,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupStatusChip() {
         binding.statusChip.setOnClickListener {
-            showServiceStatusSheet()
+            ModelManagerDialog(this) {
+                updateServiceStatus()
+            }.show()
         }
     }
 
@@ -209,13 +216,18 @@ class MainActivity : AppCompatActivity() {
                     false
                 }
             }
+            val hasLayaModel = LayaEngine.getInstance(this@MainActivity).hasPhysicalModel()
 
             if (isNeedleRunning) {
                 binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_live)
                 binding.statusText.text = "Live"
                 binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_live))
+            } else if (hasLayaModel) {
+                binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_live)
+                binding.statusText.text = "Tier 2"
+                binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_live))
             } else {
-                // Tier 1 Fast-Path is active even when Needle daemon is warm-starting
+                // Tier 1 Fast-Path is active even when neural weights aren't downloaded
                 binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_degraded)
                 binding.statusText.text = "Tier 1"
                 binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_degraded))
@@ -274,6 +286,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showMoreOptionsDialog() {
         val options = arrayOf(
+            "🧠 Edge AI Models & Downloader",
             "🎯 Goals & Projects",
             "⏰ Reminders & Alarms",
             "🔋 Request Battery Whitelist (Alexa Mode)",
@@ -285,11 +298,12 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Dexter Settings & Tools")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> showGoalsProjectsDialog()
-                    1 -> showAlarmsDialog()
-                    2 -> DexterVoiceService.requestIgnoreBatteryOptimizations(this)
-                    3 -> showServiceStatusSheet()
-                    4 -> showDatabaseDiagnostics()
+                    0 -> ModelManagerDialog(this) { updateServiceStatus() }.show()
+                    1 -> showGoalsProjectsDialog()
+                    2 -> showAlarmsDialog()
+                    3 -> DexterVoiceService.requestIgnoreBatteryOptimizations(this)
+                    4 -> showServiceStatusSheet()
+                    5 -> showDatabaseDiagnostics()
                 }
             }
             .setPositiveButton("Close", null)
@@ -325,8 +339,100 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Active Reminders (${alarms.size})")
                 .setItems(if (items.isNotEmpty()) items else arrayOf("No upcoming reminders."), null)
                 .setPositiveButton("Close", null)
+                .setNeutralButton("⏰ Set New Alarm") { _, _ ->
+                    showCreateAlarmClockDialog()
+                }
                 .show()
         }
+    }
+
+    private fun showCreateAlarmClockDialog() {
+        val now = Calendar.getInstance()
+        val presets = arrayOf(
+            "⚡ In 15 minutes",
+            "⏳ In 30 minutes",
+            "⏱️ In 1 hour",
+            "🌅 Tomorrow 7:00 AM",
+            "☀️ Tomorrow 8:00 AM",
+            "🌙 Tonight 10:00 PM",
+            "🕒 Custom Clock Picker..."
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Set Alarm Time")
+            .setItems(presets) { _, which ->
+                val cal = Calendar.getInstance()
+                when (which) {
+                    0 -> showAlarmLabelDialog(cal.timeInMillis + 15 * 60 * 1000)
+                    1 -> showAlarmLabelDialog(cal.timeInMillis + 30 * 60 * 1000)
+                    2 -> showAlarmLabelDialog(cal.timeInMillis + 60 * 60 * 1000)
+                    3 -> {
+                        cal.add(Calendar.DAY_OF_YEAR, 1)
+                        cal.set(Calendar.HOUR_OF_DAY, 7)
+                        cal.set(Calendar.MINUTE, 0)
+                        cal.set(Calendar.SECOND, 0)
+                        showAlarmLabelDialog(cal.timeInMillis)
+                    }
+                    4 -> {
+                        cal.add(Calendar.DAY_OF_YEAR, 1)
+                        cal.set(Calendar.HOUR_OF_DAY, 8)
+                        cal.set(Calendar.MINUTE, 0)
+                        cal.set(Calendar.SECOND, 0)
+                        showAlarmLabelDialog(cal.timeInMillis)
+                    }
+                    5 -> {
+                        cal.set(Calendar.HOUR_OF_DAY, 22)
+                        cal.set(Calendar.MINUTE, 0)
+                        cal.set(Calendar.SECOND, 0)
+                        if (cal.before(now)) cal.add(Calendar.DAY_OF_YEAR, 1)
+                        showAlarmLabelDialog(cal.timeInMillis)
+                    }
+                    6 -> {
+                        val timePicker = TimePickerDialog(
+                            this,
+                            { _, hourOfDay, minute ->
+                                val alarmCal = Calendar.getInstance().apply {
+                                    set(Calendar.HOUR_OF_DAY, hourOfDay)
+                                    set(Calendar.MINUTE, minute)
+                                    set(Calendar.SECOND, 0)
+                                    if (before(now)) {
+                                        add(Calendar.DAY_OF_YEAR, 1)
+                                    }
+                                }
+                                showAlarmLabelDialog(alarmCal.timeInMillis)
+                            },
+                            now.get(Calendar.HOUR_OF_DAY),
+                            now.get(Calendar.MINUTE),
+                            false
+                        )
+                        timePicker.show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showAlarmLabelDialog(alarmMillis: Long) {
+        val input = EditText(this).apply {
+            hint = "Reminder Label (e.g. Morning Workout)"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Alarm Label")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val label = input.text.toString().ifBlank { "Reminder" }
+                lifecycleScope.launch {
+                    withContext(Dispatchers.IO) {
+                        repository.createAlarm(alarmMillis, label, "Daily", true)
+                    }
+                    val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+                    Toast.makeText(this@MainActivity, "Alarm set for ${sdf.format(Date(alarmMillis))}: $label", Toast.LENGTH_SHORT).show()
+                    loadDashboardData()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showServiceStatusSheet() {

@@ -525,7 +525,7 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createPerson(name: String, relationType: String, phone: String, email: String, birthday: String, notes: String): Long {
+    fun createPerson(name: String, relationType: String = "Friend", phone: String = "", email: String = "", birthday: String = "", notes: String = ""): Long {
         val db = dbHelper.writableDatabase
         val values = ContentValues().apply {
             put("name", name.trim())
@@ -1205,7 +1205,11 @@ class DexterRepository(context: Context) {
         )
     }
 
-    private fun notifyDataChanged() {
+    fun logAudit(action: String, details: String = "", actorType: String = "USER"): Long {
+        return audit.logAction(action, details, actorType)
+    }
+
+    fun notifyDataChanged() {
         _dataRevision.tryEmit(System.currentTimeMillis())
     }
 
