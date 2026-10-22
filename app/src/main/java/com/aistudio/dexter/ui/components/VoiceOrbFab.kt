@@ -112,6 +112,28 @@ fun VoiceOrbFab(
         label = "ProcessingPulse"
     )
 
+    // 4b. Processing subtle cognitive ripple wave (harmonic expansion)
+    val processingRipple by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ProcessingRipple"
+    )
+
+    // 4c. Processing ambient glow luminescence pulse
+    val processingGlowPulse by transition.animateFloat(
+        initialValue = 0.50f,
+        targetValue = 0.90f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(850, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "ProcessingGlowPulse"
+    )
+
     // 5. Speaking audio wave oscillations
     val speakingWave by transition.animateFloat(
         initialValue = 0f,
@@ -166,19 +188,37 @@ fun VoiceOrbFab(
                 OrbVisualState.ERROR -> baseRadius * 1.30f
             }
 
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        glowColor,
-                        glowColor.copy(alpha = 0.35f),
-                        Color.Transparent
+            // Atmospheric ambient glow (with distinctive cosmic cognitive shimmer during PROCESSING)
+            if (state == OrbVisualState.PROCESSING) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF00E5FF).copy(alpha = 0.50f * processingGlowPulse),
+                            Color(0xFF7C4DFF).copy(alpha = 0.35f * processingGlowPulse),
+                            Color(0xFF00E5FF).copy(alpha = 0.12f),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = haloRadius * 1.15f
                     ),
-                    center = center,
-                    radius = haloRadius
-                ),
-                radius = haloRadius,
-                center = center
-            )
+                    radius = haloRadius * 1.15f,
+                    center = center
+                )
+            } else {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            glowColor,
+                            glowColor.copy(alpha = 0.35f),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = haloRadius
+                    ),
+                    radius = haloRadius,
+                    center = center
+                )
+            }
 
             // --- STATE SPECIFIC ANIMATIONS ---
             when (state) {
@@ -205,15 +245,51 @@ fun VoiceOrbFab(
                 }
 
                 OrbVisualState.PROCESSING -> {
-                    // Rotating orbital spinner ring around the FAB edge
+                    // Distinct subtle cognitive ripple wave propagating outward
+                    val procR1 = baseRadius + (haloRadius * 1.15f - baseRadius) * processingRipple
+                    val procA1 = ((1f - processingRipple) * 0.55f * processingGlowPulse).coerceIn(0f, 1f)
+
+                    // Ethereal radial gradient ripple ring
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF00E5FF).copy(alpha = procA1),
+                                Color(0xFF7C4DFF).copy(alpha = procA1 * 0.65f),
+                                Color.Transparent
+                            ),
+                            center = center,
+                            radius = procR1.coerceAtLeast(1f)
+                        ),
+                        radius = procR1.coerceAtLeast(1f),
+                        center = center
+                    )
+                    drawCircle(
+                        color = Color(0xFF80D8FF).copy(alpha = procA1 * 0.85f),
+                        radius = procR1.coerceAtLeast(1f),
+                        center = center,
+                        style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
+                    )
+
+                    // Secondary phase-shifted subtle cognitive echo ripple (half-period delayed)
+                    val procPhase2 = (processingRipple + 0.5f) % 1f
+                    val procR2 = baseRadius + (haloRadius * 1.15f - baseRadius) * procPhase2
+                    val procA2 = ((1f - procPhase2) * 0.35f * processingGlowPulse).coerceIn(0f, 1f)
+                    drawCircle(
+                        color = Color(0xFF7C4DFF).copy(alpha = procA2),
+                        radius = procR2.coerceAtLeast(1f),
+                        center = center,
+                        style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)
+                    )
+
+                    // Rotating orbital spinner ring around the FAB edge with electric cyan & violet accents
                     rotate(processingRotation, pivot = center) {
                         val arcRadius = baseRadius + 4.dp.toPx()
-                        // 120-degree spinning cyan arc
+                        // 140-degree spinning celestial arc
                         drawArc(
                             brush = Brush.sweepGradient(
                                 listOf(
                                     Color.Transparent,
-                                    DexterPrimary.copy(alpha = 0.2f),
+                                    Color(0xFF7C4DFF).copy(alpha = 0.35f),
                                     Color(0xFF00E5FF),
                                     Color.White
                                 )
@@ -236,9 +312,9 @@ fun VoiceOrbFab(
                             center = Offset(dotX, dotY)
                         )
 
-                        // Secondary counter-arc
+                        // Secondary counter-arc in luminous violet
                         drawArc(
-                            color = DexterPrimary.copy(alpha = 0.5f),
+                            color = Color(0xFF7C4DFF).copy(alpha = 0.65f),
                             startAngle = 190f,
                             sweepAngle = 60f,
                             useCenter = false,
@@ -306,9 +382,10 @@ fun VoiceOrbFab(
                                 Color(0xFF0D47A1)
                             )
                             OrbVisualState.PROCESSING -> listOf(
-                                Color(0xFF80D8FF),
-                                Color(0xFF0091EA),
-                                Color(0xFF0A192F)
+                                Color(0xFFE1F5FE),
+                                Color(0xFF00E5FF),
+                                Color(0xFF311B92),
+                                Color(0xFF0A0E1A)
                             )
                             OrbVisualState.SPEAKING -> listOf(
                                 Color(0xFFB9F6CA),

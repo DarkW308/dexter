@@ -246,6 +246,16 @@ class DexterRepository(context: Context) {
         return list
     }
 
+    fun updateProjectStatus(projectId: Long, newStatus: String): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("status", newStatus.trim())
+        }
+        val res = db.update("projects", values, "id = ?", arrayOf(projectId.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
+    }
+
     fun deleteProject(projectId: Long): Boolean {
         val db = dbHelper.writableDatabase
         val res = db.delete("projects", "id = ?", arrayOf(projectId.toString())) > 0
@@ -395,6 +405,31 @@ class DexterRepository(context: Context) {
         return res
     }
 
+    fun updateGoalStatus(goalId: Long, status: String): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("status", status.trim())
+        }
+        val res = db.update("goals", values, "id = ?", arrayOf(goalId.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
+    }
+
+    fun quickIncrementGoal(goalId: Long, delta: Double): Boolean {
+        val db = dbHelper.writableDatabase
+        val cursor = db.rawQuery("SELECT current_amount, target_amount FROM goals WHERE id = ?", arrayOf(goalId.toString()))
+        var curr = 0.0
+        var target = 0.0
+        cursor.use {
+            if (it.moveToFirst()) {
+                curr = it.getDouble(0)
+                target = it.getDouble(1)
+            }
+        }
+        val newCurr = (curr + delta).coerceAtLeast(0.0)
+        return updateGoalProgress(goalId, newCurr, target)
+    }
+
     fun deleteGoal(goalId: Long): Boolean {
         val db = dbHelper.writableDatabase
         val res = db.delete("goals", "id = ?", arrayOf(goalId.toString())) > 0
@@ -452,6 +487,19 @@ class DexterRepository(context: Context) {
     fun deleteAlarm(alarmId: Long): Boolean {
         val db = dbHelper.writableDatabase
         val res = db.delete("alarms", "id = ?", arrayOf(alarmId.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
+    }
+
+    fun updateAlarm(alarmId: Long, alarmTime: Long, label: String, repeatDays: String, vibrate: Boolean): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("alarm_time", alarmTime)
+            put("label", label.trim().ifEmpty { "Alarm" })
+            put("repeat_days", repeatDays)
+            put("vibrate", if (vibrate) 1 else 0)
+        }
+        val res = db.update("alarms", values, "id = ?", arrayOf(alarmId.toString())) > 0
         if (res) notifyDataChanged()
         return res
     }
@@ -1061,6 +1109,22 @@ class DexterRepository(context: Context) {
         try {
             when (segmentNumber) {
                 2 -> {
+                    val cursor = db.rawQuery("SELECT name, status, progress_percent, task_count FROM projects ORDER BY id DESC LIMIT 20", null)
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            list.add("${it.getString(0)} · [${it.getString(1)}] · ${it.getInt(2)}% (${it.getInt(3)} milestones)")
+                        }
+                    }
+                }
+                3 -> {
+                    val cursor = db.rawQuery("SELECT title, progress_percent, status FROM goals ORDER BY id DESC LIMIT 20", null)
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            list.add("${it.getString(0)} · ${it.getInt(1)}% (${it.getString(2)})")
+                        }
+                    }
+                }
+                4 -> {
                     val cursor = db.rawQuery("SELECT description, type, amount_minor, payment_mode, strftime('%Y-%m-%d %H:%M', created_at / 1000, 'unixepoch') FROM finance_transactions ORDER BY id DESC LIMIT 20", null)
                     cursor.use {
                         while (it.moveToNext()) {
@@ -1069,31 +1133,7 @@ class DexterRepository(context: Context) {
                         }
                     }
                 }
-                3 -> {
-                    val cursor = db.rawQuery("SELECT title, priority, status, category FROM tasks ORDER BY id DESC LIMIT 20", null)
-                    cursor.use {
-                        while (it.moveToNext()) {
-                            list.add("[${it.getString(2)}] ${it.getString(0)} (Priority: ${it.getString(1)}, ${it.getString(3)})")
-                        }
-                    }
-                }
-                4 -> {
-                    val cursor = db.rawQuery("SELECT name, status, task_count FROM projects ORDER BY id DESC LIMIT 20", null)
-                    cursor.use {
-                        while (it.moveToNext()) {
-                            list.add("${it.getString(0)} · Status: ${it.getString(1)} (${it.getInt(2)} tasks)")
-                        }
-                    }
-                }
                 5 -> {
-                    val cursor = db.rawQuery("SELECT title, progress_percent, status FROM goals ORDER BY id DESC LIMIT 20", null)
-                    cursor.use {
-                        while (it.moveToNext()) {
-                            list.add("${it.getString(0)} · ${it.getInt(1)}% (${it.getString(2)})")
-                        }
-                    }
-                }
-                6 -> {
                     val cursor = db.rawQuery("SELECT title, content, mood, strftime('%Y-%m-%d %H:%M', created_at / 1000, 'unixepoch') FROM journal_entries ORDER BY id DESC LIMIT 20", null)
                     cursor.use {
                         while (it.moveToNext()) {
@@ -1101,7 +1141,7 @@ class DexterRepository(context: Context) {
                         }
                     }
                 }
-                7 -> {
+                6 -> {
                     val cursor = db.rawQuery("SELECT label, alarm_time, is_enabled FROM alarms ORDER BY id DESC LIMIT 20", null)
                     cursor.use {
                         while (it.moveToNext()) {

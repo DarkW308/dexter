@@ -71,6 +71,8 @@ class VoiceOrbView @JvmOverloads constructor(
     private var idlePulseFraction = 0f
     private var waveProgress = 0f
     private var spinnerAngle = 0f
+    private var processingRippleProgress = 0f
+    private var processingGlowFraction = 0f
     private var speakingPhase = 0f
     private var errorFlashFraction = 0f
     private var touchScale = 1.0f
@@ -79,6 +81,8 @@ class VoiceOrbView @JvmOverloads constructor(
     private var idleAnimator: ValueAnimator? = null
     private var waveAnimator: ValueAnimator? = null
     private var spinnerAnimator: ValueAnimator? = null
+    private var processingRippleAnimator: ValueAnimator? = null
+    private var processingGlowAnimator: ValueAnimator? = null
     private var speakingAnimator: ValueAnimator? = null
     private var errorAnimator: ValueAnimator? = null
 
@@ -145,6 +149,8 @@ class VoiceOrbView @JvmOverloads constructor(
         idleAnimator?.cancel()
         waveAnimator?.cancel()
         spinnerAnimator?.cancel()
+        processingRippleAnimator?.cancel()
+        processingGlowAnimator?.cancel()
         speakingAnimator?.cancel()
         errorAnimator?.cancel()
     }
@@ -183,6 +189,31 @@ class VoiceOrbView @JvmOverloads constructor(
             interpolator = LinearInterpolator()
             addUpdateListener {
                 spinnerAngle = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+
+        // Subtle cognitive expanding ripple wave
+        processingRippleAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1400L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener {
+                processingRippleProgress = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+
+        // Ambient cognitive glow luminescence pulse
+        processingGlowAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 850L
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener {
+                processingGlowFraction = it.animatedValue as Float
                 invalidate()
             }
             start()
@@ -315,24 +346,63 @@ class VoiceOrbView @JvmOverloads constructor(
 
     private fun drawProcessingState(canvas: Canvas, cx: Float, cy: Float, coreRadius: Float, maxRadius: Float) {
         val safeRadius = coreRadius.coerceAtLeast(1f)
-        // Center core
+        val density = resources.displayMetrics.density
+
+        // 1. Subtle Outer Cosmic Glow Aura (Violet & Cyan synthesis shimmer)
+        val glowRadius = (maxRadius * 0.85f * (0.95f + 0.1f * processingGlowFraction)).coerceAtLeast(1f)
+        val glowAlpha = (50 + 40 * processingGlowFraction).toInt()
+        corePaint.shader = RadialGradient(
+            cx, cy, glowRadius,
+            intArrayOf(
+                Color.argb(glowAlpha, 0, 229, 255),
+                Color.argb((glowAlpha * 0.7f).toInt(), 124, 77, 255),
+                Color.TRANSPARENT
+            ),
+            floatArrayOf(0.35f, 0.70f, 1.0f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawCircle(cx, cy, glowRadius, corePaint)
+
+        // 2. Subtle Cognitive Expanding Ripple Waves
+        val rippleRadius = (safeRadius + (maxRadius * 0.85f - safeRadius) * processingRippleProgress).coerceAtLeast(1f)
+        val rippleAlpha = ((1.0f - processingRippleProgress) * (130 + 60 * processingGlowFraction)).toInt().coerceIn(0, 255)
+        ringPaint.strokeWidth = 2.5f * density
+        ringPaint.color = Color.argb(rippleAlpha, 0, 229, 255)
+        canvas.drawCircle(cx, cy, rippleRadius, ringPaint)
+
+        // Secondary phase-shifted subtle cognitive echo ripple
+        val echoProgress = (processingRippleProgress + 0.5f) % 1.0f
+        val echoRadius = (safeRadius + (maxRadius * 0.85f - safeRadius) * echoProgress).coerceAtLeast(1f)
+        val echoAlpha = ((1.0f - echoProgress) * 85).toInt().coerceIn(0, 255)
+        ringPaint.strokeWidth = 1.6f * density
+        ringPaint.color = Color.argb(echoAlpha, 124, 77, 255)
+        canvas.drawCircle(cx, cy, echoRadius, ringPaint)
+
+        // 3. Cognitive Center Core (Luminous White -> Electric Cyan -> Cosmic Violet -> Dark)
         corePaint.shader = RadialGradient(
             cx, cy, safeRadius,
-            intArrayOf(colorProcessing, colorCoreDark),
-            floatArrayOf(0.4f, 1.0f),
+            intArrayOf(
+                Color.parseColor("#E1F5FE"),
+                Color.parseColor("#00E5FF"),
+                Color.parseColor("#311B92"),
+                colorCoreDark
+            ),
+            floatArrayOf(0.15f, 0.45f, 0.82f, 1.0f),
             Shader.TileMode.CLAMP
         )
         canvas.drawCircle(cx, cy, safeRadius, corePaint)
 
-        // Outer rotating arcs
-        val density = resources.displayMetrics.density
+        // 4. Outer Rotating Arcs with Dual Accents (Cyan + Violet)
         val arcRadius = (safeRadius * 1.35f).coerceAtLeast(1f)
         arcBounds.set(cx - arcRadius, cy - arcRadius, cx + arcRadius, cy + arcRadius)
 
-        arcPaint.strokeWidth = 4f * density
-        arcPaint.color = colorProcessing
-        canvas.drawArc(arcBounds, spinnerAngle, 110f, false, arcPaint)
-        canvas.drawArc(arcBounds, spinnerAngle + 180f, 60f, false, arcPaint)
+        arcPaint.strokeWidth = 3.5f * density
+        arcPaint.color = Color.parseColor("#00E5FF")
+        canvas.drawArc(arcBounds, spinnerAngle, 120f, false, arcPaint)
+
+        arcPaint.strokeWidth = 2.5f * density
+        arcPaint.color = Color.parseColor("#7C4DFF")
+        canvas.drawArc(arcBounds, spinnerAngle + 180f, 65f, false, arcPaint)
     }
 
     private fun drawSpeakingState(canvas: Canvas, cx: Float, cy: Float, coreRadius: Float, maxRadius: Float) {
