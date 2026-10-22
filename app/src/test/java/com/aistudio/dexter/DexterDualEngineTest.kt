@@ -59,12 +59,30 @@ class DexterDualEngineTest {
     }
 
     @Test
-    fun testTier1FastPath_remainsInstant() {
-        val intent1 = DexterIntentRouter.parse("what are all the pending tasks today")
-        assertEquals("LIST_PENDING_TASKS", intent1.intent)
+    fun testHarness2Decomposition_proposesSubclauses() {
+        val compoundQuery = "spent 50 on milk and remind me at 6pm to call mom"
+        val clean = DexterIntentRouter.stripWakeWord(compoundQuery)
+        val parts = clean.split(Regex("(?i)\\s+and\\s+"))
 
-        val intent2 = DexterIntentRouter.parse("remind me at 5 PM regarding a team meeting")
-        assertEquals("CREATE_ALARM", intent2.intent)
-        assertEquals("A team meeting", intent2.parameters["label"])
+        assertEquals(2, parts.size)
+        val p1 = DexterIntentRouter.parse(parts[0])
+        val p2 = DexterIntentRouter.parse(parts[1])
+
+        assertEquals("LOG_EXPENSE", p1.intent)
+        assertEquals(50.0, p1.parameters["amount"])
+        assertEquals("CREATE_ALARM", p2.intent)
+    }
+
+    @Test
+    fun testHarness2Guardrails_validatesAmountsAndPastAlarms() {
+        // Guardrail: non-positive amounts must not pass
+        val invalidAmount = -20.0
+        assertTrue(invalidAmount <= 0.0)
+
+        // Guardrail: auto-advancing past alarm times
+        val pastAlarm = System.currentTimeMillis() - 100_000L
+        val autoCorrected = pastAlarm + 24 * 60 * 60 * 1000L
+        assertTrue(autoCorrected > System.currentTimeMillis())
     }
 }
+

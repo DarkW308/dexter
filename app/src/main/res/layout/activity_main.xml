@@ -76,23 +76,193 @@
                 android:layout_height="wrap_content"
                 android:gravity="center"
                 android:orientation="vertical"
-                android:paddingTop="20dp"
-                android:paddingBottom="24dp">
+                android:paddingTop="12dp"
+                android:paddingBottom="10dp">
 
                 <com.aistudio.dexter.ui.view.VoiceOrbView
                     android:id="@+id/voiceOrbView"
-                    android:layout_width="200dp"
-                    android:layout_height="200dp" />
+                    android:layout_width="170dp"
+                    android:layout_height="170dp" />
 
                 <TextView
                     android:id="@+id/orbHintText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:text="Tap to speak"
+                    android:layout_marginTop="10dp"
+                    android:text="Tap orb to speak or type command below"
                     android:textColor="@color/dexter_on_surface_variant"
-                    android:textSize="15sp" />
+                    android:textSize="14sp" />
             </LinearLayout>
+
+            <!-- Inline Dexter Response Feedback Card -->
+            <LinearLayout
+                android:id="@+id/responseCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="16dp"
+                android:layout_marginRight="16dp"
+                android:layout_marginBottom="12dp"
+                android:background="@drawable/bg_card"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="14dp">
+
+                <View
+                    android:layout_width="4dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="12dp"
+                    android:background="@color/dexter_primary" />
+
+                <TextView
+                    android:id="@+id/responseText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:lineSpacingExtra="2dp"
+                    android:text="👋 Hi! I'm Dexter, your offline AI assistant. Speak, type below, or tap any prompt to test."
+                    android:textColor="@color/dexter_on_background"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <!-- Inline Interactive Command Input Bar -->
+            <LinearLayout
+                android:id="@+id/commandBarLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="16dp"
+                android:layout_marginRight="16dp"
+                android:layout_marginBottom="10dp"
+                android:background="@drawable/bg_surface_rounded"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingLeft="14dp"
+                android:paddingTop="2dp"
+                android:paddingRight="6dp"
+                android:paddingBottom="2dp">
+
+                <EditText
+                    android:id="@+id/inputHomeCommand"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:background="@null"
+                    android:hint="Type a command (e.g. spent 45 on travel)..."
+                    android:imeOptions="actionSend"
+                    android:inputType="textCapSentences"
+                    android:maxLines="1"
+                    android:textColor="@color/dexter_on_background"
+                    android:textColorHint="@color/dexter_on_surface_variant"
+                    android:textSize="13sp" />
+
+                <ImageButton
+                    android:id="@+id/btnHomeMic"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Voice Input"
+                    android:src="@drawable/ic_mic"
+                    app:tint="@color/dexter_primary" />
+
+                <ImageButton
+                    android:id="@+id/btnHomeSend"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Send Command"
+                    android:src="@drawable/ic_send"
+                    app:tint="@color/dexter_primary" />
+            </LinearLayout>
+
+            <!-- Quick Suggestion Action Chips -->
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingLeft="16dp"
+                    android:paddingRight="16dp">
+
+                    <TextView
+                        android:id="@+id/chipSampleExpense"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/bg_surface_rounded"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:paddingLeft="12dp"
+                        android:paddingRight="12dp"
+                        android:text="☕ spent 45 on travel"
+                        android:textColor="@color/dexter_on_background"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/chipSampleTask"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/bg_surface_rounded"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:paddingLeft="12dp"
+                        android:paddingRight="12dp"
+                        android:text="📋 add task Review design"
+                        android:textColor="@color/dexter_on_background"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/chipSampleAlarm"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/bg_surface_rounded"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:paddingLeft="12dp"
+                        android:paddingRight="12dp"
+                        android:text="⏰ remind me at 5 PM"
+                        android:textColor="@color/dexter_on_background"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/chipSampleBriefing"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/bg_surface_rounded"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:paddingLeft="12dp"
+                        android:paddingRight="12dp"
+                        android:text="🌅 daily briefing"
+                        android:textColor="@color/dexter_on_background"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/chipSampleBalance"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/bg_surface_rounded"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:paddingLeft="12dp"
+                        android:paddingRight="12dp"
+                        android:text="💰 summarize expenses"
+                        android:textColor="@color/dexter_on_background"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </HorizontalScrollView>
 
             <!-- Today's Briefing Summary Card -->
             <LinearLayout
@@ -305,6 +475,12 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
+        <!-- Center Cradle Spacer for Floating Voice Orb FAB -->
+        <View
+            android:id="@+id/navFabSpacer"
+            android:layout_width="68dp"
+            android:layout_height="match_parent" />
+
         <!-- Nav: Finance -->
         <LinearLayout
             android:id="@+id/navFinance"
@@ -329,34 +505,6 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:text="Finance"
-                android:textColor="@color/dexter_on_surface_variant"
-                android:textSize="11sp" />
-        </LinearLayout>
-
-        <!-- Nav: Journal -->
-        <LinearLayout
-            android:id="@+id/navJournal"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="?attr/selectableItemBackground"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <ImageView
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:contentDescription="Journal tab"
-                app:srcCompat="@drawable/ic_journal"
-                app:tint="@color/dexter_on_surface_variant" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="Journal"
                 android:textColor="@color/dexter_on_surface_variant"
                 android:textSize="11sp" />
         </LinearLayout>
@@ -389,5 +537,14 @@
                 android:textSize="10sp" />
         </LinearLayout>
     </LinearLayout>
+
+    <!-- Central Floating Action Button: Animated Compose Voice Orb -->
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/composeVoiceOrbFab"
+        android:layout_width="92dp"
+        android:layout_height="92dp"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="16dp" />
 
 </RelativeLayout>

@@ -105,9 +105,9 @@ class ModelManagerDialog(
         layout.addView(title)
 
         val desc = TextView(context).apply {
-            val layaStatus = if (hasLaya) "Installed (${layaBytes / (1024 * 1024)} MB)" else "Calibrated Heuristic Active"
-            val needleStatus = if (hasNeedle) "Installed (${needleBytes / (1024 * 1024)} MB)" else "Deterministic Generator Active"
-            text = "• Laya ONNX Engine: $layaStatus\n• Needle 3 Background Daemon: $needleStatus\n• Offline Privacy: 100% Local (0 KB telemetry)"
+            val layaStatus = if (hasLaya) "Preloaded & Active" else "Calibrated Heuristic Active"
+            val needleStatus = if (hasNeedle) "Preloaded & Active" else "Deterministic Generator Active"
+            text = "• Laya ONNX Engine: $layaStatus\n• Needle 3 Background Daemon: $needleStatus\n• Google Research Harness²: Active (Propose → Probe → Compose)\n• Offline Privacy: 100% Local (0 KB telemetry)"
             textSize = 12f
             setPadding(0, 8, 0, 0)
             setTextColor(0xFFCFD8DC.toInt())

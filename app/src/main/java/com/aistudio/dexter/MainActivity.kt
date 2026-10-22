@@ -30,6 +30,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.app.TimePickerDialog
 import android.widget.EditText
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aistudio.dexter.ui.components.VoiceOrbFab
+import com.aistudio.dexter.ui.theme.DexterTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -42,6 +48,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var repository: DexterRepository
     private lateinit var speechManager: DexterSpeechManager
     private lateinit var actionExecutor: DexterActionExecutor
+
+    private val fabOrbState = MutableStateFlow(OrbVisualState.IDLE)
+    private val fabAudioIntensity = MutableStateFlow(0f)
 
     private var activeVoiceDialog: VoiceInteractionDialog? = null
 
@@ -85,6 +94,9 @@ class MainActivity : AppCompatActivity() {
             actionExecutor = DexterActionExecutor(repository, this)
 
             setupVoiceOrb()
+            setupVoiceOrbFab()
+            observeSpeechManager()
+            setupCommandBar()
             setupBottomNav()
             setupStatusChip()
             setupBriefingCard()
@@ -99,8 +111,9 @@ class MainActivity : AppCompatActivity() {
                 DexterVoiceService.startService(this)
             }
 
-            // Eagerly refresh data
+            // Eagerly refresh data and service status
             loadDashboardData()
+            updateServiceStatus()
 
             if (intent.getBooleanExtra("action_open_voice", false)) {
                 openVoiceDialog()
@@ -132,6 +145,83 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupCommandBar() {
+        binding.btnHomeSend.setOnClickListener {
+            val query = binding.inputHomeCommand.text.toString().trim()
+            if (query.isNotEmpty()) {
+                binding.inputHomeCommand.setText("")
+                processDirectCommand(query)
+            }
+        }
+
+        binding.inputHomeCommand.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
+                val query = binding.inputHomeCommand.text.toString().trim()
+                if (query.isNotEmpty()) {
+                    binding.inputHomeCommand.setText("")
+                    processDirectCommand(query)
+                }
+                true
+            } else {
+                false
+            }
+        }
+
+        binding.btnHomeMic.setOnClickListener {
+            requestVoiceActivation()
+        }
+
+        // Quick sample test chips
+        binding.chipSampleExpense.setOnClickListener {
+            processDirectCommand("spent 45 on travel")
+        }
+        binding.chipSampleTask.setOnClickListener {
+            processDirectCommand("add task Review design")
+        }
+        binding.chipSampleAlarm.setOnClickListener {
+            processDirectCommand("remind me at 5 PM")
+        }
+        binding.chipSampleBriefing.setOnClickListener {
+            processDirectCommand("daily briefing")
+        }
+        binding.chipSampleBalance.setOnClickListener {
+            processDirectCommand("summarize expenses")
+        }
+    }
+
+    private fun processDirectCommand(phrase: String) {
+        val clean = phrase.trim()
+        if (clean.isEmpty()) return
+
+        // Update UI to processing state
+        setVisualState(OrbVisualState.PROCESSING)
+        binding.orbHintText.text = "Thinking..."
+        binding.responseText.text = "Processing: \"$clean\"..."
+
+        lifecycleScope.launch {
+            val harnessEngine = com.aistudio.dexter.engine.Harness2Engine.getInstance(this@MainActivity, repository, actionExecutor)
+            val harnessResult = withContext(Dispatchers.IO) {
+                harnessEngine.executeHarness(clean)
+            }
+
+            // Speaking State
+            setVisualState(OrbVisualState.SPEAKING)
+            binding.responseText.text = harnessResult.summaryText
+            binding.orbHintText.text = "Dexter responded (Harness²)"
+
+            // Speak via TTS if initialized
+            speechManager.speak(harnessResult.summaryText)
+
+            // Refresh dashboard data metrics (e.g. expenses, tasks)
+            loadDashboardData()
+
+            // Return to IDLE after a short delay
+            kotlinx.coroutines.delay(3000)
+            setVisualState(OrbVisualState.IDLE)
+            binding.orbHintText.text = "Tap orb to speak or type command below"
+        }
+    }
+
     private fun setupVoiceOrb() {
         binding.voiceOrbView.onTap = {
             requestVoiceActivation()
@@ -142,8 +232,45 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Keep main orb in gentle breathing IDLE animation
-        binding.voiceOrbView.setState(OrbVisualState.IDLE)
-        binding.orbHintText.text = "Tap orb to speak or test voice commands"
+        setVisualState(OrbVisualState.IDLE)
+        binding.orbHintText.text = "Tap orb to speak or type command below"
+    }
+
+    private fun setupVoiceOrbFab() {
+        binding.composeVoiceOrbFab.setContent {
+            DexterTheme {
+                val state by fabOrbState.collectAsStateWithLifecycle()
+                val intensity by fabAudioIntensity.collectAsStateWithLifecycle()
+                VoiceOrbFab(
+                    state = state,
+                    audioIntensity = intensity,
+                    onClick = {
+                        requestVoiceActivation()
+                    }
+                )
+            }
+        }
+    }
+
+    private fun observeSpeechManager() {
+        lifecycleScope.launch {
+            speechManager.orbState.collectLatest { state ->
+                fabOrbState.value = state
+                binding.voiceOrbView.setState(state)
+            }
+        }
+        lifecycleScope.launch {
+            speechManager.rmsVolume.collectLatest { rms ->
+                val intensity = (rms / 8f).coerceIn(0f, 1f)
+                fabAudioIntensity.value = intensity
+            }
+        }
+    }
+
+    private fun setVisualState(state: OrbVisualState, intensity: Float = 0f) {
+        fabOrbState.value = state
+        fabAudioIntensity.value = intensity
+        binding.voiceOrbView.setState(state)
     }
 
     private fun requestVoiceActivation() {
@@ -183,7 +310,7 @@ class MainActivity : AppCompatActivity() {
         activeVoiceDialog = dialog
         dialog.setOnDismissListener {
             activeVoiceDialog = null
-            binding.voiceOrbView.setState(OrbVisualState.IDLE)
+            setVisualState(OrbVisualState.IDLE)
             loadDashboardData()
         }
         dialog.show()
@@ -273,10 +400,6 @@ class MainActivity : AppCompatActivity() {
 
         binding.navFinance.setOnClickListener {
             startActivity(Intent(this, FinanceActivity::class.java))
-        }
-
-        binding.navJournal.setOnClickListener {
-            startActivity(Intent(this, JournalActivity::class.java))
         }
 
         binding.navMore.setOnClickListener {
