@@ -18,13 +18,16 @@ import com.aistudio.dexter.engine.DexterActionExecutor
 import com.aistudio.dexter.engine.DexterSpeechManager
 import com.aistudio.dexter.engine.LayaEngine
 import com.aistudio.dexter.engine.OrbVisualState
+import com.aistudio.dexter.engine.ProactiveMotiveEngine
 import com.aistudio.dexter.service.DexterVoiceService
 import com.aistudio.dexter.ui.activity.FinanceActivity
 import com.aistudio.dexter.ui.activity.JournalActivity
 import com.aistudio.dexter.ui.activity.SegmentsActivity
+import com.aistudio.dexter.ui.activity.SegmentDetailActivity
 import com.aistudio.dexter.ui.activity.TasksActivity
 import com.aistudio.dexter.ui.dialog.ModelManagerDialog
 import com.aistudio.dexter.ui.view.VoiceInteractionDialog
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -88,21 +91,44 @@ class MainActivity : AppCompatActivity() {
         try {
             binding = ActivityMainBinding.inflate(layoutInflater)
             setContentView(binding.root)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Fatal error inflating layout", e)
+            return
+        }
 
+        try {
             repository = (application as DexterApp).repository
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error initializing repository", e)
+        }
+
+        try {
             speechManager = DexterSpeechManager(this)
-            actionExecutor = DexterActionExecutor(repository, this)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error initializing speechManager", e)
+        }
 
-            setupVoiceOrb()
-            setupVoiceOrbFab()
-            observeSpeechManager()
-            setupCommandBar()
-            setupBottomNav()
-            setupStatusChip()
-            setupBriefingCard()
-            setupSegmentsHubCard()
+        try {
+            if (::repository.isInitialized) {
+                actionExecutor = DexterActionExecutor(repository, this)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error initializing actionExecutor", e)
+        }
 
-            // Start voice service if permission was already granted
+        try { setupVoiceOrb() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupVoiceOrb", e) }
+        try { setupVoiceOrbFab() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupVoiceOrbFab", e) }
+        try { if (::speechManager.isInitialized) observeSpeechManager() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in observeSpeechManager", e) }
+        try { setupCommandBar() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupCommandBar", e) }
+        try { setupBottomNav() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupBottomNav", e) }
+        try { setupStatusChip() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupStatusChip", e) }
+        try { setupBriefingCard() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupBriefingCard", e) }
+        try { setupAlexaModeCard() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupAlexaModeCard", e) }
+        try { setupSegmentsHubCard() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupSegmentsHubCard", e) }
+        try { setupProfileAvatar() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupProfileAvatar", e) }
+
+        // Start voice service if permission was already granted
+        try {
             val hasPermission = ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.RECORD_AUDIO
@@ -110,16 +136,20 @@ class MainActivity : AppCompatActivity() {
             if (hasPermission) {
                 DexterVoiceService.startService(this)
             }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error checking audio permission or starting service", e)
+        }
 
-            // Eagerly refresh data and service status
-            loadDashboardData()
-            updateServiceStatus()
+        // Eagerly refresh data and service status
+        try { loadDashboardData() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in loadDashboardData", e) }
+        try { updateServiceStatus() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in updateServiceStatus", e) }
 
+        try {
             if (intent.getBooleanExtra("action_open_voice", false)) {
                 openVoiceDialog()
             }
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Error in onCreate", e)
+            android.util.Log.e("MainActivity", "Error checking action_open_voice", e)
         }
     }
 
@@ -136,12 +166,38 @@ class MainActivity : AppCompatActivity() {
         if (::binding.isInitialized) {
             loadDashboardData()
             updateServiceStatus()
+
+            // Proactive Motive Evaluation (Autonomous speech without prior prompt)
+            lifecycleScope.launch(Dispatchers.IO) {
+                val motiveEngine = ProactiveMotiveEngine.getInstance(this@MainActivity)
+                val vocalization = motiveEngine.evaluateVocalization(forceTrigger = false)
+                if (vocalization != null) {
+                    withContext(Dispatchers.Main) {
+                        if (::speechManager.isInitialized) {
+                            speechManager.speak(vocalization.spokenText)
+                        }
+                        Toast.makeText(this@MainActivity, "${vocalization.motive.badge} ${vocalization.headline}: ${vocalization.spokenText}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
         }
     }
 
     private fun setupSegmentsHubCard() {
         binding.cardSegmentsHub.setOnClickListener {
             startActivity(Intent(this, SegmentsActivity::class.java))
+        }
+    }
+
+    private fun setupProfileAvatar() {
+        val prefs = com.aistudio.dexter.data.preferences.UserPreferencesRepository.getInstance(this)
+        lifecycleScope.launch {
+            prefs.preferences.collectLatest { p ->
+                binding.tvProfileAvatar.text = p.avatarEmoji
+            }
+        }
+        binding.btnProfileAvatar.setOnClickListener {
+            startActivity(Intent(this, com.aistudio.dexter.ui.activity.ProfileActivity::class.java))
         }
     }
 
@@ -237,6 +293,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupVoiceOrbFab() {
+        binding.composeVoiceOrbFab.setViewCompositionStrategy(
+            ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+        )
         binding.composeVoiceOrbFab.setContent {
             DexterTheme {
                 val state by fabOrbState.collectAsStateWithLifecycle()
@@ -287,6 +346,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openVoiceDialog() {
+        if (!::speechManager.isInitialized || !::actionExecutor.isInitialized) {
+            Toast.makeText(this, "Voice engine initializing, please wait...", Toast.LENGTH_SHORT).show()
+            return
+        }
         val dialog = VoiceInteractionDialog(
             context = this,
             speechManager = speechManager,
@@ -318,8 +381,50 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupBriefingCard() {
         binding.cardBriefing.setOnClickListener {
-            // Navigate directly to TasksActivity for actionable task review
-            startActivity(Intent(this, TasksActivity::class.java))
+            // Navigate directly to Segment 14 (Morning Briefing & End-of-Day Summary)
+            val intent = Intent(this, SegmentDetailActivity::class.java).apply {
+                putExtra(SegmentDetailActivity.EXTRA_SEGMENT_NUMBER, 14)
+            }
+            startActivity(intent)
+        }
+    }
+
+    private var isAlexaModeActive = true
+
+    private fun setupAlexaModeCard() {
+        binding.btnToggleAlexaVoice.setOnClickListener {
+            isAlexaModeActive = !isAlexaModeActive
+            DexterVoiceService.setAlexaMode(this, isAlexaModeActive)
+            if (isAlexaModeActive) {
+                binding.alexaStatusBadge.text = "🟢 Active"
+                binding.alexaStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.status_live))
+                binding.btnToggleAlexaVoice.text = "Disable"
+                Toast.makeText(this, "Offline wake-word detector active: Say 'Hey Dexter', 'Dexter', or 'buddy'", Toast.LENGTH_SHORT).show()
+            } else {
+                binding.alexaStatusBadge.text = "⚪ Paused"
+                binding.alexaStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.dexter_on_surface_variant))
+                binding.btnToggleAlexaVoice.text = "Enable"
+                Toast.makeText(this, "Offline wake-word detector paused.", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.btnSimulateWakeUp.setOnClickListener {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!hasPermission) {
+                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                return@setOnClickListener
+            }
+
+            Toast.makeText(
+                this,
+                "Starting Wake-Up Conversation! Listen to Dexter speak and answer hands-free (\"I'm awake\" or \"Snooze\").",
+                Toast.LENGTH_LONG
+            ).show()
+            DexterVoiceService.triggerWakeUpSimulation(this)
         }
     }
 
@@ -333,57 +438,68 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateServiceStatus() {
         lifecycleScope.launch {
-            val isNeedleRunning = withContext(Dispatchers.IO) {
-                try {
-                    val socket = java.net.Socket()
-                    socket.connect(java.net.InetSocketAddress("127.0.0.1", 8081), 250)
-                    socket.close()
-                    true
-                } catch (e: Exception) {
-                    false
+            try {
+                val isNeedleRunning = withContext(Dispatchers.IO) {
+                    try {
+                        val socket = java.net.Socket()
+                        socket.connect(java.net.InetSocketAddress("127.0.0.1", 8081), 250)
+                        socket.close()
+                        true
+                    } catch (e: Exception) {
+                        false
+                    }
                 }
-            }
-            val hasLayaModel = LayaEngine.getInstance(this@MainActivity).hasPhysicalModel()
-
-            if (isNeedleRunning) {
-                binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_live)
-                binding.statusText.text = "Live"
-                binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_live))
-            } else if (hasLayaModel) {
-                binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_live)
-                binding.statusText.text = "Tier 2"
-                binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_live))
-            } else {
-                // Tier 1 Fast-Path is active even when neural weights aren't downloaded
-                binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_degraded)
-                binding.statusText.text = "Tier 1"
-                binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_degraded))
+                val hasLayaModel = LayaEngine.getInstance(this@MainActivity).hasPhysicalModel()
+                if (::binding.isInitialized) {
+                    if (isNeedleRunning) {
+                        binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_live)
+                        binding.statusText.text = "Live"
+                        binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_live))
+                    } else if (hasLayaModel) {
+                        binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_live)
+                        binding.statusText.text = "Tier 2"
+                        binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_live))
+                    } else {
+                        // Tier 1 Fast-Path is active even when neural weights aren't downloaded
+                        binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_degraded)
+                        binding.statusText.text = "Tier 1"
+                        binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_degraded))
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Error in updateServiceStatus", e)
             }
         }
     }
 
     private fun loadDashboardData() {
         lifecycleScope.launch {
-            val briefing = withContext(Dispatchers.IO) { repository.getDailyBriefing() }
+            try {
+                val briefing = withContext(Dispatchers.IO) { repository.getDailyBriefing() }
 
-            val tasksText = "${briefing.pendingTasksCount} tasks pending"
-            val alarmsText = if (briefing.nextAlarmLabel != null) "1 reminder" else "0 reminders"
-            val rupeesSpent = briefing.todaySpentMinor / 100
-            val expenseText = "₹$rupeesSpent spent today"
+                if (::binding.isInitialized) {
+                    val tasksText = "${briefing.pendingTasksCount} tasks pending"
+                    val alarmsText = if (briefing.nextAlarmLabel != null) "1 reminder" else "0 reminders"
+                    val rupeesSpent = briefing.todaySpentMinor / 100
+                    val expenseText = "₹$rupeesSpent spent today"
 
-            binding.briefingMetricsText.text = "$tasksText · $alarmsText · $expenseText"
+                    binding.briefingMetricsText.text = "$tasksText · $alarmsText · $expenseText"
 
-            if (briefing.topTaskTitle != null) {
-                binding.nextTaskText.text = "📋 Next: ${briefing.topTaskTitle}"
-            } else {
-                binding.nextTaskText.text = "📋 Next: No pending tasks"
-            }
+                    if (briefing.topTaskTitle != null) {
+                        binding.nextTaskText.text = "📋 Next: ${briefing.topTaskTitle}"
+                    } else {
+                        binding.nextTaskText.text = "📋 Next: No pending tasks"
+                    }
 
-            if (briefing.nextAlarmLabel != null && briefing.nextAlarmTime != null) {
-                val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(briefing.nextAlarmTime * 1000))
-                binding.nextAlarmText.text = "⏰ $timeStr – ${briefing.nextAlarmLabel}"
-            } else {
-                binding.nextAlarmText.text = "⏰ Next: No upcoming alarms"
+                    if (briefing.nextAlarmLabel != null && briefing.nextAlarmTime != null) {
+                        val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(briefing.nextAlarmTime * 1000))
+                        binding.nextAlarmText.text = "⏰ $timeStr – ${briefing.nextAlarmLabel}"
+                    } else {
+                        binding.nextAlarmText.text = "⏰ Next: No upcoming alarms"
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Error in loadDashboardData", e)
             }
         }
     }
@@ -410,6 +526,7 @@ class MainActivity : AppCompatActivity() {
     private fun showMoreOptionsDialog() {
         val options = arrayOf(
             "🧠 Edge AI Models & Downloader",
+            "🔬 Voice & Laya Pipeline Lab (Accents & Languages)",
             "🎯 Goals & Projects",
             "⏰ Reminders & Alarms",
             "🔋 Request Battery Whitelist (Alexa Mode)",
@@ -422,11 +539,12 @@ class MainActivity : AppCompatActivity() {
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> ModelManagerDialog(this) { updateServiceStatus() }.show()
-                    1 -> showGoalsProjectsDialog()
-                    2 -> showAlarmsDialog()
-                    3 -> DexterVoiceService.requestIgnoreBatteryOptimizations(this)
-                    4 -> showServiceStatusSheet()
-                    5 -> showDatabaseDiagnostics()
+                    1 -> startActivity(Intent(this, com.aistudio.dexter.ui.activity.VoiceLabActivity::class.java))
+                    2 -> showGoalsProjectsDialog()
+                    3 -> showAlarmsDialog()
+                    4 -> DexterVoiceService.requestIgnoreBatteryOptimizations(this)
+                    5 -> showServiceStatusSheet()
+                    6 -> showDatabaseDiagnostics()
                 }
             }
             .setPositiveButton("Close", null)
@@ -439,13 +557,25 @@ class MainActivity : AppCompatActivity() {
             val projects = withContext(Dispatchers.IO) { repository.listProjects() }
 
             val goalLines = goals.map { "🎯 [Goal] ${it.name} (${it.status})" }
-            val projectLines = projects.map { "📁 [Project] ${it.name} (${it.status})" }
+            val projectLines = projects.map { "📁 [Project] ${it.name} (${it.status}) - ${it.taskCount} milestones (${it.progressPercent}%)" }
             val allItems = (goalLines + projectLines).toTypedArray()
 
             AlertDialog.Builder(this@MainActivity)
                 .setTitle("Goals & Projects")
                 .setItems(if (allItems.isNotEmpty()) allItems else arrayOf("No active goals or projects."), null)
                 .setPositiveButton("Close", null)
+                .setNeutralButton("📁 Projects") { _, _ ->
+                    val intent = Intent(this@MainActivity, SegmentDetailActivity::class.java).apply {
+                        putExtra(SegmentDetailActivity.EXTRA_SEGMENT_NUMBER, 2)
+                    }
+                    startActivity(intent)
+                }
+                .setNegativeButton("🎯 Goals") { _, _ ->
+                    val intent = Intent(this@MainActivity, SegmentDetailActivity::class.java).apply {
+                        putExtra(SegmentDetailActivity.EXTRA_SEGMENT_NUMBER, 3)
+                    }
+                    startActivity(intent)
+                }
                 .show()
         }
     }

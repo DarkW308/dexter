@@ -78,6 +78,10 @@ android {
         compose = true
         viewBinding = true
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -98,4 +102,5 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.onnxruntime.android)
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
 }

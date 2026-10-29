@@ -110,6 +110,54 @@ class DexterActionExecutor(
                 )
             }
 
+            // 1b. ALARM_I_AM_AWAKE
+            "ALARM_I_AM_AWAKE" -> {
+                val pending = taskRepo.listPendingTasks()
+                val projects = repository.listProjects()
+                val msg = buildString {
+                    append("Good morning! Fantastic to hear you are up. ")
+                    if (pending.isEmpty()) {
+                        append("You have no urgent tasks scheduled right now. ")
+                    } else {
+                        append("You have ${pending.size} pending tasks today. First on your list is '${pending.first().title}'. ")
+                    }
+                    if (projects.isNotEmpty()) {
+                        append("Your active project '${projects.first().name}' is at ${projects.first().progressPercent} percent. ")
+                    }
+                    append("Let's make today great!")
+                }
+                ActionResult(
+                    success = true,
+                    intent = "ALARM_I_AM_AWAKE",
+                    message = msg
+                )
+            }
+
+            // 1c. ALARM_SNOOZE
+            "ALARM_SNOOZE" -> {
+                val minutes = (action.parameters["minutes"] as? Int ?: 5).coerceIn(1, 60)
+                val newAlarmTime = System.currentTimeMillis() + (minutes * 60 * 1000L)
+                val alarmId = repository.createAlarm(newAlarmTime, "Snoozed Alarm ($minutes mins)")
+                context?.let { ctx ->
+                    com.aistudio.dexter.receiver.DexterAlarmReceiver.scheduleExactAlarm(ctx, alarmId, "Snoozed Reminder", newAlarmTime / 1000L)
+                }
+                ActionResult(
+                    success = true,
+                    intent = "ALARM_SNOOZE",
+                    message = "Alarm snoozed for $minutes minutes. Rest up, I will check in on you again soon."
+                )
+            }
+
+            // 1d. ALARM_DISMISS
+            "ALARM_DISMISS" -> {
+                repository.dismissRecentAlarm()
+                ActionResult(
+                    success = true,
+                    intent = "ALARM_DISMISS",
+                    message = "Alarm dismissed. Have a wonderful and productive day!"
+                )
+            }
+
             // 2. LIST_PENDING_TASKS
             "LIST_PENDING_TASKS" -> {
                 val tasks = taskRepo.listPendingTasks()
@@ -357,12 +405,22 @@ class DexterActionExecutor(
 
             // 15. CREATE_GOAL
             "CREATE_GOAL" -> {
-                val title = action.parameters["title"] as? String ?: "New Goal"
-                val goal = repository.createGoal(title)
+                val title = action.parameters["title"] as? String ?: (action.parameters["name"] as? String ?: "New Goal")
+                val category = action.parameters["category"] as? String ?: "Personal"
+                val amount = (action.parameters["target_amount"] as? Number)?.toDouble()
+                    ?: (action.parameters["target_amount"] as? String)?.toDoubleOrNull() ?: 0.0
+                val targetDate = action.parameters["target_date"] as? String ?: ""
+                val unit = action.parameters["metric_unit"] as? String ?: (if (category.equals("Financial", ignoreCase = true)) "₹" else "units")
+                val goal = repository.createGoal(title, category, amount, targetDate, unit)
+                val targetPart = if (amount > 0) {
+                    if (unit == "₹") " with target ₹${formatAmount(amount)}" else " with target ${formatAmount(amount)} $unit"
+                } else ""
+                val datePart = if (targetDate.isNotBlank()) " by $targetDate" else ""
+                val msg = "Created $category goal '${goal.name}'$targetPart$datePart."
                 ActionResult(
                     success = true,
                     intent = "CREATE_GOAL",
-                    message = "Goal '${goal.name}' created.",
+                    message = msg,
                     entityType = "GOAL",
                     entityId = goal.id,
                     data = mapOf("goal" to goal)
@@ -372,10 +430,15 @@ class DexterActionExecutor(
             // 16. LIST_GOALS
             "LIST_GOALS" -> {
                 val goals = repository.listGoals()
+                val summary = if (goals.isEmpty()) {
+                    "You don't have any active goals yet."
+                } else {
+                    "You have ${goals.size} active goals. Top goals are: " + goals.take(3).joinToString("; ") { "${it.name} at ${it.progressPercent}%" }
+                }
                 ActionResult(
                     success = true,
                     intent = "LIST_GOALS",
-                    message = "You have ${goals.size} active goals.",
+                    message = summary,
                     entityType = "GOAL",
                     data = mapOf("goals" to goals)
                 )
@@ -384,24 +447,209 @@ class DexterActionExecutor(
             // 17. CREATE_PROJECT
             "CREATE_PROJECT" -> {
                 val name = action.parameters["name"] as? String ?: "New Project"
-                val proj = repository.createProject(name)
+                val desc = action.parameters["description"] as? String ?: ""
+                val deadline = action.parameters["deadline"] as? String ?: ""
+                val proj = repository.createProject(name, desc, deadline)
+
+                val milestones = action.parameters["milestones"] as? List<*>
+                val addedMilestones = mutableListOf<String>()
+                if (milestones != null) {
+                    for (m in milestones) {
+                        val mStr = m?.toString()?.trim()
+                        if (!mStr.isNullOrBlank()) {
+                            repository.createMilestone(proj.id, mStr)
+                            addedMilestones.add(mStr)
+                        }
+                    }
+                }
+
+                val msg = buildString {
+                    append("Project '${proj.name}' created")
+                    if (deadline.isNotBlank()) append(" with deadline $deadline")
+                    if (addedMilestones.isNotEmpty()) append(" and ${addedMilestones.size} milestones")
+                    append(".")
+                }
                 ActionResult(
                     success = true,
                     intent = "CREATE_PROJECT",
-                    message = "Project '${proj.name}' started.",
+                    message = msg,
                     entityType = "PROJECT",
                     entityId = proj.id,
                     data = mapOf("project" to proj)
                 )
             }
 
+            // 17b. CREATE_MILESTONE
+            "CREATE_MILESTONE" -> {
+                val milestoneTitle = (action.parameters["milestone"] as? String ?: action.parameters["title"] as? String ?: "").trim()
+                val projectName = (action.parameters["project_name"] as? String ?: action.parameters["project"] as? String ?: "").trim()
+
+                val allProjects = repository.listProjects()
+                val targetProject = if (projectName.isNotBlank()) {
+                    allProjects.firstOrNull { it.name.equals(projectName, ignoreCase = true) }
+                        ?: allProjects.firstOrNull { it.name.contains(projectName, ignoreCase = true) }
+                } else {
+                    allProjects.firstOrNull()
+                }
+
+                if (targetProject != null && milestoneTitle.isNotBlank()) {
+                    repository.createMilestone(targetProject.id, milestoneTitle)
+                    ActionResult(
+                        success = true,
+                        intent = "CREATE_MILESTONE",
+                        message = "Added milestone '$milestoneTitle' to project '${targetProject.name}'.",
+                        entityType = "PROJECT",
+                        entityId = targetProject.id
+                    )
+                } else if (targetProject == null && projectName.isNotBlank()) {
+                    val newProj = repository.createProject(projectName)
+                    repository.createMilestone(newProj.id, milestoneTitle)
+                    ActionResult(
+                        success = true,
+                        intent = "CREATE_MILESTONE",
+                        message = "Started project '$projectName' and added milestone '$milestoneTitle'.",
+                        entityType = "PROJECT",
+                        entityId = newProj.id
+                    )
+                } else {
+                    ActionResult(
+                        success = false,
+                        intent = "CREATE_MILESTONE",
+                        message = "Which project would you like to add this milestone to?"
+                    )
+                }
+            }
+
+            // 17c. COMPLETE_MILESTONE
+            "COMPLETE_MILESTONE" -> {
+                val milestoneTitle = (action.parameters["milestone"] as? String ?: action.parameters["title"] as? String ?: "").trim()
+                val projectName = (action.parameters["project_name"] as? String ?: action.parameters["project"] as? String ?: "").trim()
+
+                val allProjects = repository.listProjects()
+                val targetProject = if (projectName.isNotBlank()) {
+                    allProjects.firstOrNull { it.name.equals(projectName, ignoreCase = true) }
+                        ?: allProjects.firstOrNull { it.name.contains(projectName, ignoreCase = true) }
+                } else {
+                    allProjects.firstOrNull()
+                }
+
+                if (targetProject != null) {
+                    val milestones = repository.listMilestones(targetProject.id)
+                    val targetMilestone = if (milestoneTitle.isNotBlank()) {
+                        milestones.firstOrNull { it.title.equals(milestoneTitle, ignoreCase = true) }
+                            ?: milestones.firstOrNull { it.title.contains(milestoneTitle, ignoreCase = true) }
+                    } else {
+                        milestones.firstOrNull { !it.isCompleted }
+                    }
+
+                    if (targetMilestone != null) {
+                        repository.toggleMilestone(targetMilestone.id, true, targetProject.id)
+                        val updated = repository.listProjects().firstOrNull { it.id == targetProject.id }
+                        val prog = updated?.progressPercent ?: 100
+                        ActionResult(
+                            success = true,
+                            intent = "COMPLETE_MILESTONE",
+                            message = "Marked milestone '${targetMilestone.title}' completed in '${targetProject.name}'. Progress is now $prog%.",
+                            entityType = "PROJECT",
+                            entityId = targetProject.id
+                        )
+                    } else {
+                        ActionResult(
+                            success = false,
+                            intent = "COMPLETE_MILESTONE",
+                            message = "I couldn't find an incomplete milestone matching '$milestoneTitle' in project '${targetProject.name}'."
+                        )
+                    }
+                } else {
+                    ActionResult(
+                        success = false,
+                        intent = "COMPLETE_MILESTONE",
+                        message = "I couldn't find project '$projectName'."
+                    )
+                }
+            }
+
+            // 17d. UPDATE_PROJECT_DEADLINE
+            "UPDATE_PROJECT_DEADLINE" -> {
+                val projectName = (action.parameters["project_name"] as? String ?: action.parameters["name"] as? String ?: "").trim()
+                val deadline = (action.parameters["deadline"] as? String ?: "").trim()
+
+                val allProjects = repository.listProjects()
+                val targetProject = if (projectName.isNotBlank()) {
+                    allProjects.firstOrNull { it.name.equals(projectName, ignoreCase = true) }
+                        ?: allProjects.firstOrNull { it.name.contains(projectName, ignoreCase = true) }
+                } else {
+                    allProjects.firstOrNull()
+                }
+
+                if (targetProject != null && deadline.isNotBlank()) {
+                    repository.updateProjectDeadline(targetProject.id, deadline)
+                    ActionResult(
+                        success = true,
+                        intent = "UPDATE_PROJECT_DEADLINE",
+                        message = "Updated deadline for project '${targetProject.name}' to $deadline.",
+                        entityType = "PROJECT",
+                        entityId = targetProject.id
+                    )
+                } else {
+                    ActionResult(
+                        success = false,
+                        intent = "UPDATE_PROJECT_DEADLINE",
+                        message = "Please specify which project and the target deadline."
+                    )
+                }
+            }
+
+            // 17e. GET_PROJECT_STATUS
+            "GET_PROJECT_STATUS" -> {
+                val projectName = (action.parameters["project_name"] as? String ?: action.parameters["name"] as? String ?: "").trim()
+                val allProjects = repository.listProjects()
+                val targetProject = if (projectName.isNotBlank()) {
+                    allProjects.firstOrNull { it.name.equals(projectName, ignoreCase = true) }
+                        ?: allProjects.firstOrNull { it.name.contains(projectName, ignoreCase = true) }
+                } else {
+                    allProjects.firstOrNull()
+                }
+
+                if (targetProject != null) {
+                    val milestones = repository.listMilestones(targetProject.id)
+                    val completed = milestones.count { it.isCompleted }
+                    val total = milestones.size
+                    val deadlineMsg = if (targetProject.deadline.isNotBlank()) " Target deadline is ${targetProject.deadline}." else ""
+                    val pendingList = milestones.filter { !it.isCompleted }.take(2).joinToString { it.title }
+                    val nextUpMsg = if (pendingList.isNotBlank()) " Next up: $pendingList." else ""
+                    ActionResult(
+                        success = true,
+                        intent = "GET_PROJECT_STATUS",
+                        message = "Project '${targetProject.name}' is ${targetProject.status} at ${targetProject.progressPercent}% completion with $completed of $total milestones done.$deadlineMsg$nextUpMsg",
+                        entityType = "PROJECT",
+                        entityId = targetProject.id,
+                        data = mapOf("project" to targetProject, "milestones" to milestones)
+                    )
+                } else {
+                    val count = allProjects.size
+                    ActionResult(
+                        success = true,
+                        intent = "GET_PROJECT_STATUS",
+                        message = "You have $count projects. Which one would you like to check?",
+                        entityType = "PROJECT"
+                    )
+                }
+            }
+
             // 18. LIST_PROJECTS
             "LIST_PROJECTS" -> {
                 val projs = repository.listProjects()
+                val message = if (projs.isEmpty()) {
+                    "You don't have any projects yet. Say 'create project' followed by the name to start one."
+                } else {
+                    val summaryList = projs.take(3).joinToString("; ") { "${it.name} at ${it.progressPercent}% with ${it.taskCount} milestones" }
+                    "You have ${projs.size} projects. $summaryList."
+                }
                 ActionResult(
                     success = true,
                     intent = "LIST_PROJECTS",
-                    message = "You have ${projs.size} active projects.",
+                    message = message,
                     entityType = "PROJECT",
                     data = mapOf("projects" to projs)
                 )
@@ -471,6 +719,24 @@ class DexterActionExecutor(
                 )
             }
 
+            // 22. CONVERSATIONAL_REASONING (Needle-3 on-device intelligence across 16 segments)
+            "CONVERSATIONAL_REASONING" -> {
+                val query = action.parameters["query"] as? String ?: "Status check"
+                val result = NeedleConversationalEngine.synthesizeResponse(query, repository)
+                ActionResult(
+                    success = true,
+                    intent = "CONVERSATIONAL_REASONING",
+                    message = result.answer,
+                    entityType = "CONVERSATION",
+                    data = mapOf(
+                        "spokenAnswer" to result.spokenAnswer,
+                        "accessedSegments" to result.accessedSegments,
+                        "latencyMs" to result.latencyMs,
+                        "personaTone" to result.personaTone
+                    )
+                )
+            }
+
             else -> {
                 ActionResult(
                     success = false,
@@ -503,6 +769,25 @@ class DexterActionExecutor(
             }
         }
 
+        if (parsedIntent.intent == "CHAINED_MULTI_COMMAND") {
+            @Suppress("UNCHECKED_CAST")
+            val subIntents = parsedIntent.parameters["subIntents"] as? List<ParsedIntent> ?: emptyList()
+            if (subIntents.isNotEmpty()) {
+                val results = mutableListOf<ActionResult>()
+                for (sub in subIntents) {
+                    results.add(execute(sub))
+                }
+                val messages = results.map { it.message }
+                val allSuccess = results.all { it.success }
+                return ActionResult(
+                    success = allSuccess,
+                    intent = "CHAINED_MULTI_COMMAND",
+                    message = messages.joinToString(" and "),
+                    data = mapOf("results" to results)
+                )
+            }
+        }
+
         // Bridge to contract format
         val params = mutableMapOf<String, Any?>()
         parsedIntent.parameters.forEach { (k, v) ->
@@ -522,5 +807,13 @@ class DexterActionExecutor(
         )
 
         return executeContract(contract)
+    }
+
+    private fun formatAmount(amount: Double): String {
+        return if (amount % 1.0 == 0.0) {
+            String.format(java.util.Locale.US, "%,d", amount.toLong())
+        } else {
+            String.format(java.util.Locale.US, "%,.1f", amount)
+        }
     }
 }

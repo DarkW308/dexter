@@ -9,11 +9,11 @@ import com.aistudio.dexter.data.model.TaskCounts
 import com.aistudio.dexter.data.model.TaskItem
 import com.aistudio.dexter.data.model.TaskStatus
 
-class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper) {
+class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper), TaskDataSource {
 
     constructor(context: Context) : this(DexterDatabaseHelper.getInstance(context))
 
-    fun getTaskById(taskId: Long): TaskItem? {
+    override fun getTaskById(taskId: Long): TaskItem? {
         val db = readableDb
         val cursor = db.rawQuery(
             "SELECT id, title, priority, project_id, status, due_at, scheduled_start, scheduled_end, estimated_duration_seconds, completion_source, created_at, notes, category FROM tasks WHERE id = ?",
@@ -27,17 +27,17 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper) 
         return null
     }
 
-    fun createTask(
+    override fun createTask(
         title: String,
-        priority: Priority = Priority.NORMAL,
-        projectId: Long? = null,
-        dueAt: Long? = null,
-        scheduledStart: Long? = null,
-        scheduledEnd: Long? = null,
-        durationSeconds: Long? = null,
-        actorType: String = "USER",
-        notes: String = "",
-        category: String = "General"
+        priority: Priority,
+        projectId: Long?,
+        dueAt: Long?,
+        scheduledStart: Long?,
+        scheduledEnd: Long?,
+        durationSeconds: Long?,
+        actorType: String,
+        notes: String,
+        category: String
     ): TaskItem {
         val db = writableDb
         val now = System.currentTimeMillis()
@@ -110,10 +110,10 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper) 
         )
     }
 
-    fun completeTask(
+    override fun completeTask(
         taskId: Long,
-        completionSource: String = "DEXTER_RECORDED",
-        actorType: String = "USER"
+        completionSource: String,
+        actorType: String
     ): Boolean {
         val db = writableDb
         val values = ContentValues().apply {
@@ -159,7 +159,55 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper) 
         return db.update("tasks", values, "status = 'PENDING'", null)
     }
 
-    fun listPendingTasks(limit: Int = 100): List<TaskItem> {
+    override fun markTaskPending(taskId: Long): Boolean {
+        val db = writableDb
+        val values = ContentValues().apply {
+            put("status", "PENDING")
+            putNull("completion_source")
+        }
+        val rows = db.update("tasks", values, "id = ?", arrayOf(taskId.toString()))
+        if (rows > 0) {
+            val occValues = ContentValues().apply {
+                put("status", "SCHEDULED")
+                putNull("completed_at")
+            }
+            db.update("task_occurrences", occValues, "task_id = ?", arrayOf(taskId.toString()))
+        }
+        return rows > 0
+    }
+
+    override fun toggleTaskCompletion(taskId: Long): Boolean {
+        val task = getTaskById(taskId) ?: return false
+        return if (task.status == TaskStatus.COMPLETED) {
+            markTaskPending(taskId)
+        } else {
+            completeTask(taskId)
+        }
+    }
+
+    override fun deleteTask(taskId: Long): Boolean {
+        val db = writableDb
+        db.delete("task_occurrences", "task_id = ?", arrayOf(taskId.toString()))
+        val rows = db.delete("tasks", "id = ?", arrayOf(taskId.toString()))
+        return rows > 0
+    }
+
+    override fun getAllTasks(limit: Int): List<TaskItem> {
+        val list = mutableListOf<TaskItem>()
+        val db = readableDb
+        val cursor = db.rawQuery(
+            "SELECT id, title, priority, project_id, status, due_at, scheduled_start, scheduled_end, estimated_duration_seconds, completion_source, created_at, notes, category FROM tasks WHERE status != 'CANCELLED' ORDER BY CASE status WHEN 'PENDING' THEN 1 WHEN 'IN_PROGRESS' THEN 2 ELSE 3 END, CASE priority WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'NORMAL' THEN 3 ELSE 4 END, id DESC LIMIT ?",
+            arrayOf(limit.toString())
+        )
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(parseTaskCursor(it))
+            }
+        }
+        return list
+    }
+
+    override fun listPendingTasks(limit: Int): List<TaskItem> {
         val list = mutableListOf<TaskItem>()
         val db = readableDb
         val cursor = db.rawQuery(
@@ -174,7 +222,7 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper) 
         return list
     }
 
-    fun listCompletedTasks(limit: Int = 100): List<TaskItem> {
+    override fun listCompletedTasks(limit: Int): List<TaskItem> {
         val list = mutableListOf<TaskItem>()
         val db = readableDb
         val cursor = db.rawQuery(
@@ -189,7 +237,7 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper) 
         return list
     }
 
-    fun getTaskCounts(): TaskCounts {
+    override fun getTaskCounts(): TaskCounts {
         val db = readableDb
         var pending = 0
         var completed = 0

@@ -53,6 +53,26 @@
                 android:textSize="12sp"
                 android:textStyle="bold" />
         </LinearLayout>
+
+        <!-- Profile Avatar Button -->
+        <FrameLayout
+            android:id="@+id/btnProfileAvatar"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/bg_surface_rounded"
+            android:clickable="true"
+            android:contentDescription="Profile and Preferences"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/tvProfileAvatar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="🤖"
+                android:textSize="18sp" />
+        </FrameLayout>
     </LinearLayout>
 
     <!-- Scrollable Content Container -->
@@ -263,6 +283,87 @@
                         android:textSize="12sp" />
                 </LinearLayout>
             </HorizontalScrollView>
+
+            <!-- Alexa Hands-Free Assistant & Proactive Wake-Up Card -->
+            <LinearLayout
+                android:id="@+id/cardAlexaMode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="16dp"
+                android:layout_marginRight="16dp"
+                android:layout_marginBottom="14dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="🎙️ Offline Wake-Word (ONNX)"
+                        android:textColor="@color/dexter_on_background"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/alexaStatusBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_surface_rounded"
+                        android:paddingLeft="10dp"
+                        android:paddingTop="4dp"
+                        android:paddingRight="10dp"
+                        android:paddingBottom="4dp"
+                        android:text="🟢 Active"
+                        android:textColor="@color/status_live"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/alexaDescriptionText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Say &quot;Hey Dexter&quot;, &quot;Dexter&quot;, or &quot;buddy&quot; hands-free (Offline ONNX). Includes autonomous morning briefing &amp; wake-up interaction with escalating follow-up if you stay in bed."
+                    android:textColor="@color/dexter_on_surface_variant"
+                    android:textSize="13sp" />
+
+                <!-- Action Buttons: Test Wake-Up Follow-up & Voice Toggle -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btnSimulateWakeUp"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="6dp"
+                        android:backgroundTint="@color/dexter_primary"
+                        android:text="⚡ Test Wake-Up Follow-Up"
+                        android:textColor="@color/dexter_on_primary"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/btnToggleAlexaVoice"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:backgroundTint="@color/dexter_surface_variant"
+                        android:text="Disable"
+                        android:textColor="@color/dexter_on_background"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </LinearLayout>
 
             <!-- Today's Briefing Summary Card -->
             <LinearLayout

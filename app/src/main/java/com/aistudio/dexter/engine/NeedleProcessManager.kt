@@ -36,6 +36,12 @@ class NeedleProcessManager(private val context: Context) {
     fun startDaemon() {
         if (isRunning.get()) return
 
+        val isArm64 = android.os.Build.SUPPORTED_ABIS.any { it.contains("arm64") || it.contains("aarch64") }
+        if (!isArm64) {
+            Log.i(TAG, "Device architecture is not ARM64. Tier 1 deterministic fast-path active.")
+            return
+        }
+
         scope.launch {
             try {
                 val binaryFile = prepareBinary()
@@ -118,14 +124,22 @@ class NeedleProcessManager(private val context: Context) {
         monitorJob?.cancel()
         monitorJob = scope.launch {
             var backoffMs = 2000L
+            var restartAttempts = 0
             while (isActive) {
                 delay(backoffMs)
                 val healthy = checkHealth()
                 if (!healthy && isRunning.get()) {
-                    Log.w(TAG, "Needle 3 health check failed. Attempting restart...")
+                    if (restartAttempts >= 3) {
+                        Log.w(TAG, "Needle 3 failed to start after 3 attempts. Falling back to Tier 1 fast-path.")
+                        stopDaemon()
+                        break
+                    }
+                    restartAttempts++
+                    Log.w(TAG, "Needle 3 health check failed (attempt $restartAttempts/3). Attempting restart...")
                     restart()
                     backoffMs = (backoffMs * 2).coerceAtMost(30000L)
                 } else if (healthy) {
+                    restartAttempts = 0
                     backoffMs = 5000L
                 }
             }

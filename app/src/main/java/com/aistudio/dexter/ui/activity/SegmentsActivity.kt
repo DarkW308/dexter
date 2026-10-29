@@ -33,6 +33,18 @@ class SegmentsActivity : AppCompatActivity() {
         val btnBack: ImageView = findViewById(R.id.btnBack)
         btnBack.setOnClickListener { finish() }
 
+        val btnProfileAvatar: android.widget.FrameLayout? = findViewById(R.id.btnProfileAvatar)
+        val tvProfileAvatar: TextView? = findViewById(R.id.tvProfileAvatar)
+        btnProfileAvatar?.setOnClickListener {
+            startActivity(Intent(this, ProfileActivity::class.java))
+        }
+        val prefsRepo = com.aistudio.dexter.data.preferences.UserPreferencesRepository.getInstance(this)
+        lifecycleScope.launch {
+            prefsRepo.preferences.collect { prefs ->
+                tvProfileAvatar?.text = prefs.avatarEmoji
+            }
+        }
+
         val rvSegments: RecyclerView = findViewById(R.id.rvSegments)
         rvSegments.layoutManager = LinearLayoutManager(this)
         adapter = SegmentsAdapter(emptyList()) { selectedSegment ->

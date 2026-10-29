@@ -26,6 +26,11 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
         super.onConfigure(db)
         db.setForeignKeyConstraintsEnabled(true)
         db.enableWriteAheadLogging()
+        try {
+            db.execSQL("PRAGMA busy_timeout = 5000;")
+        } catch (e: Exception) {
+            // Ignore if unsupported
+        }
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -150,11 +155,13 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
                     email TEXT NOT NULL DEFAULT '',
                     birthday TEXT NOT NULL DEFAULT '',
                     notes TEXT NOT NULL DEFAULT '',
+                    backstory TEXT NOT NULL DEFAULT '',
                     last_contacted_text TEXT NOT NULL DEFAULT 'Recently',
                     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
                 )
             """)
             ensureColumn(db, "relationship_people", "notes", "TEXT NOT NULL DEFAULT ''")
+            ensureColumn(db, "relationship_people", "backstory", "TEXT NOT NULL DEFAULT ''")
             ensureColumn(db, "relationship_people", "last_contacted_text", "TEXT NOT NULL DEFAULT 'Recently'")
 
             db.execSQL("""
@@ -222,6 +229,9 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
             """)
             ensureColumn(db, "wellbeing_habits", "last_completed_at", "INTEGER NOT NULL DEFAULT 0")
             ensureColumn(db, "wellbeing_habits", "reminder_time", "TEXT NOT NULL DEFAULT '08:00 AM'")
+            ensureColumn(db, "wellbeing_habits", "habit_type", "TEXT NOT NULL DEFAULT 'BUILD'")
+            ensureColumn(db, "wellbeing_habits", "category", "TEXT NOT NULL DEFAULT 'Health'")
+            ensureColumn(db, "wellbeing_habits", "quit_reason", "TEXT NOT NULL DEFAULT ''")
 
             // Segment 11: Reading & Knowledge Vault (Local RAG / Notes)
             db.execSQL("""
@@ -235,14 +245,34 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
                     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
                 )
             """)
+            ensureColumn(db, "knowledge_documents", "content", "TEXT NOT NULL DEFAULT ''")
+            ensureColumn(db, "knowledge_documents", "category", "TEXT NOT NULL DEFAULT 'Personal Profile'")
+            ensureColumn(db, "knowledge_documents", "is_core_memory", "INTEGER NOT NULL DEFAULT 0")
+            ensureColumn(db, "knowledge_documents", "tags", "TEXT NOT NULL DEFAULT ''")
 
-            // Segment 12: Quick Capture & Inbox
+            // Segment 12: Data Gathering & Raw Intake Hub
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS capture_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     note_text TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'UNPROCESSED',
                     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+                )
+            """)
+            ensureColumn(db, "capture_events", "source_type", "TEXT NOT NULL DEFAULT 'TEXT'")
+            ensureColumn(db, "capture_events", "category_tag", "TEXT NOT NULL DEFAULT 'General'")
+            ensureColumn(db, "capture_events", "scheduled_window", "TEXT NOT NULL DEFAULT 'Ad-hoc'")
+            ensureColumn(db, "capture_events", "routed_to", "TEXT NOT NULL DEFAULT ''")
+
+            // Scheduled Intake Windows configuration
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS intake_schedules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    scheduled_time TEXT NOT NULL DEFAULT '07:30 AM',
+                    target_type TEXT NOT NULL DEFAULT 'MORNING_BRIEFING',
+                    is_enabled INTEGER NOT NULL DEFAULT 1,
+                    prompt_question TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -257,6 +287,9 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
                     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
                 )
             """)
+            ensureColumn(db, "attention_events", "category", "TEXT NOT NULL DEFAULT 'SYSTEM'")
+            ensureColumn(db, "attention_events", "detail", "TEXT NOT NULL DEFAULT ''")
+            ensureColumn(db, "attention_events", "action_target", "TEXT NOT NULL DEFAULT ''")
 
             // Segment 14: Daily Briefings & Summaries
             db.execSQL("""
@@ -572,23 +605,34 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
             db.execSQL("INSERT INTO wellbeing_habits (id, name, frequency, reminder_time, streak_count, is_done_today, created_at) VALUES (3, 'Hydrate 2.5L Water', 'Daily', 'Hourly', 8, 1, $now)")
         }
 
-        // Segment 11: Knowledge
+        // Segment 11: Knowledge & Personal Second Brain
         if (count("knowledge_documents") == 0) {
-            db.execSQL("INSERT INTO knowledge_documents (id, title, source, file_type, excerpt, chunk_count, created_at) VALUES (1, 'Vivo V11 Camera Manual & Specs', 'Manual.pdf', 'PDF', 'Helio P60 camera ISP supports dual 16MP + 5MP sensors with AI scene recognition...', 14, $now)")
-            db.execSQL("INSERT INTO knowledge_documents (id, title, source, file_type, excerpt, chunk_count, created_at) VALUES (2, 'Edge AI Offline Engine Architecture', 'Specs.md', 'MD', 'Offline inference architecture running within 120MB RAM constraint on Android 8.1 Oreo...', 8, $now)")
+            db.execSQL("INSERT INTO knowledge_documents (id, title, source, file_type, excerpt, chunk_count, content, category, is_core_memory, tags, created_at) VALUES (1, 'Personal Identity & Core Values', 'User Profile', 'PROFILE', 'Engineer & product builder. Values offline privacy, deep focus, and actionable execution...', 1, 'Full-stack engineer and product builder. Values offline privacy, deep work, rapid execution, and direct actionable answers. Always prefers concise, zero-fluff responses with technical rigor.', 'About Me', 1, '#profile #identity #values', $now)")
+            db.execSQL("INSERT INTO knowledge_documents (id, title, source, file_type, excerpt, chunk_count, content, category, is_core_memory, tags, created_at) VALUES (2, 'Peak Focus & Working Hours Routine', 'Preferences', 'PREF', 'Primary deep work block is 09:00 AM to 01:00 PM without non-critical interruptions...', 1, 'Primary deep work block is 09:00 AM to 01:00 PM for coding and architecture. No non-critical interruptions during this window. Evening project review at 08:30 PM.', 'Preferences', 1, '#routine #focus #calendar', $now)")
+            db.execSQL("INSERT INTO knowledge_documents (id, title, source, file_type, excerpt, chunk_count, content, category, is_core_memory, tags, created_at) VALUES (3, 'Health, Sleep & Habit Commitments', 'Health Log', 'HEALTH', 'Daily hydration goal: 2,500ml water. Sleep schedule: bedtime 11:30 PM, wake 06:50 AM...', 1, 'Daily hydration goal: 2,500ml water. Sleep schedule: bedtime 11:30 PM, wake 06:50 AM (7h 20m target rest). Actively quitting late night junk food with a streak protector.', 'Health & Rules', 1, '#health #sleep #habits', $now)")
+            db.execSQL("INSERT INTO knowledge_documents (id, title, source, file_type, excerpt, chunk_count, content, category, is_core_memory, tags, created_at) VALUES (4, 'Edge AI Engine Architecture Specs', 'Specs.md', 'MD', 'Offline inference running within 120MB RAM constraint on Android 8.1 Oreo...', 8, 'Offline inference architecture running within 120MB RAM constraint on Android 8.1 Oreo / MediaTek Helio P60. Utilizes non-autoregressive decision classification and INT8 quantization for sub-100ms response times.', 'Technical Notes', 0, '#ai #architecture #specs', $now)")
         }
 
-        // Segment 12: Capture Events
+        // Segment 12: Data Gathering & Raw Intake Hub
         if (count("capture_events") == 0) {
-            db.execSQL("INSERT INTO capture_events (id, note_text, status, created_at) VALUES (1, 'Idea: Build a local RSS reader into Dexter''s knowledge base next month.', 'UNPROCESSED', ${now - 86400000})")
-            db.execSQL("INSERT INTO capture_events (id, note_text, status, created_at) VALUES (2, 'Look into high-durability bike helmets with MIPS protection.', 'UNPROCESSED', $now)")
+            db.execSQL("INSERT INTO capture_events (id, note_text, status, source_type, category_tag, scheduled_window, created_at) VALUES (1, 'Voice Memo: Refactor SQLite WAL synchronization engine for sub-5ms intent throughput.', 'UNPROCESSED', 'VOICE', 'Task', 'Ad-hoc', ${now - 3600000})")
+            db.execSQL("INSERT INTO capture_events (id, note_text, status, source_type, category_tag, scheduled_window, created_at) VALUES (2, 'Morning Intention: Complete Segment 12 HIG 2026 redesign and verify ledger before midday sync.', 'UNPROCESSED', 'SCHEDULED_MORNING', 'Reflection', 'Morning Intake', ${now - 14400000})")
+            db.execSQL("INSERT INTO capture_events (id, note_text, status, source_type, category_tag, scheduled_window, created_at) VALUES (3, 'Look into high-durability bike helmets with MIPS spherical protection for city commute.', 'UNPROCESSED', 'TEXT', 'Thought', 'Ad-hoc', $now)")
+            db.execSQL("INSERT INTO capture_events (id, note_text, status, source_type, category_tag, scheduled_window, created_at) VALUES (4, 'Evening Wrap-up: Finished habit quit engine test, drank 2,500ml water, spent ₹340 on organic groceries.', 'PROCESSED', 'SCHEDULED_EVENING', 'Reflection', 'Evening Reflection', ${now - 86400000})")
+        }
+
+        if (count("intake_schedules") == 0) {
+            db.execSQL("INSERT INTO intake_schedules (id, name, scheduled_time, target_type, is_enabled, prompt_question) VALUES (1, 'Morning Intake', '07:30 AM', 'MORNING_BRIEFING', 1, 'What are your top 3 objectives, state of mind, and schedule focus for today?')")
+            db.execSQL("INSERT INTO intake_schedules (id, name, scheduled_time, target_type, is_enabled, prompt_question) VALUES (2, 'Midday Sync', '01:30 PM', 'MIDDAY_CHECKPOINT', 1, 'Quick midday dump: any new tasks, meetings, calls, or expenses to log?')")
+            db.execSQL("INSERT INTO intake_schedules (id, name, scheduled_time, target_type, is_enabled, prompt_question) VALUES (3, 'Evening Reflection', '09:30 PM', 'END_OF_DAY_SUMMARY', 1, 'How did today unfold? Log key achievements, expenses, insights, and lessons for your End-of-Day summary.')")
         }
 
         // Segment 13: Attention Feed
         if (count("attention_events") == 0) {
-            db.execSQL("INSERT INTO attention_events (id, title, urgency, is_acknowledged, snoozed_until, created_at) VALUES (1, 'Electricity Bill Due Tomorrow', 'Critical', 0, 0, $now)")
-            db.execSQL("INSERT INTO attention_events (id, title, urgency, is_acknowledged, snoozed_until, created_at) VALUES (2, 'Rahul''s Birthday in 2 days', 'Normal', 0, 0, $now)")
-            db.execSQL("INSERT INTO attention_events (id, title, urgency, is_acknowledged, snoozed_until, created_at) VALUES (3, 'Dexter local database backup verified', 'Info', 1, 0, $now)")
+            db.execSQL("INSERT INTO attention_events (id, title, urgency, category, detail, action_target, is_acknowledged, snoozed_until, created_at) VALUES (1, 'Electricity Bill Due Tomorrow', 'Critical', 'FINANCE', 'Utility account payment due in 24 hours. Estimated ₹2,450 to avoid late surcharge.', 'finance_transactions', 0, 0, $now)")
+            db.execSQL("INSERT INTO attention_events (id, title, urgency, category, detail, action_target, is_acknowledged, snoozed_until, created_at) VALUES (2, 'Hydration Lag: Under 1,000ml Today', 'High', 'HEALTH', 'You have logged only 500ml water today against your 2,500ml health commitment.', 'wellbeing_hydration', 0, 0, $now)")
+            db.execSQL("INSERT INTO attention_events (id, title, urgency, category, detail, action_target, is_acknowledged, snoozed_until, created_at) VALUES (3, 'Rahul''s Birthday in 2 Days', 'Normal', 'DEADLINE', 'Reach out or prepare anniversary gift for close friend circle.', 'relationship_people', 0, 0, $now)")
+            db.execSQL("INSERT INTO attention_events (id, title, urgency, category, detail, action_target, is_acknowledged, snoozed_until, created_at) VALUES (4, 'Dexter Local Database Backup Verified', 'Info', 'SECURITY', 'Encrypted SQLite WAL checkpoint confirmed healthy. 0 integrity anomalies.', 'system_rules', 1, 0, $now)")
         }
 
         // Segment 14: Daily Briefings

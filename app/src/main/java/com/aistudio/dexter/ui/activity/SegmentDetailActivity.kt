@@ -25,6 +25,23 @@ class SegmentDetailActivity : ComponentActivity() {
 
         repository = (application as DexterApp).repository
         segmentNumber = intent.getIntExtra(EXTRA_SEGMENT_NUMBER, 2)
+        when (segmentNumber) {
+            1 -> {
+                startActivity(Intent(this, TasksActivity::class.java))
+                finish()
+                return
+            }
+            4 -> {
+                startActivity(Intent(this, FinanceActivity::class.java))
+                finish()
+                return
+            }
+            5 -> {
+                startActivity(Intent(this, JournalActivity::class.java))
+                finish()
+                return
+            }
+        }
 
         setContent {
             DexterTheme {

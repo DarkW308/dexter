@@ -129,6 +129,12 @@ class DexterAlarmReceiver : BroadcastReceiver() {
 
         // 2. Heads-up notification
         showAlarmNotification(context, alarmId, label)
+
+        // 3. Alexa-style Proactive Autonomous Voice Wake-Up & Follow-Up
+        val isMorningBriefing = label.contains("briefing", ignoreCase = true) ||
+                label.contains("morning", ignoreCase = true) ||
+                label.contains("wake", ignoreCase = true)
+        com.aistudio.dexter.service.DexterVoiceService.triggerProactiveAlarm(context, alarmId, label, isMorningBriefing)
     }
 
     private fun triggerVibration(context: Context) {

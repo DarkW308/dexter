@@ -223,23 +223,6 @@ class LayaEngine private constructor(private val context: Context?) {
     }
 
     private fun runCalibratedSlotFilling(text: String, lower: String): LayaDecisionResult {
-        // Finance / Expense Slot Extraction
-        val financeMatch = DexterIntentRouter.extractFinance(text)
-        if (financeMatch != null) {
-            return LayaDecisionResult(
-                intent = "LOG_EXPENSE",
-                confidence = 0.96f,
-                slots = mapOf(
-                    "amount" to financeMatch.amountRupees,
-                    "amountMinor" to financeMatch.amountMinor,
-                    "description" to financeMatch.description,
-                    "category" to financeMatch.category,
-                    "type" to financeMatch.type
-                ),
-                targetSegment = 4
-            )
-        }
-
         // Casual slang financial spending: "chuck 250 into petrol", "paid 80 for auto"
         val casualSpendPattern = Pattern.compile("(?:chuck|put|spent|paid|gave|drop)\\s+(?:rs\\.?|inr|₹)?\\s*(\\d+(?:\\.\\d+)?)\\s*(?:bucks|rupees)?\\s*(?:for|in|into|on|towards)\\s+(.+)", Pattern.CASE_INSENSITIVE)
         val mCasual = casualSpendPattern.matcher(text)
@@ -256,6 +239,23 @@ class LayaEngine private constructor(private val context: Context?) {
                     "description" to desc.replaceFirstChar { it.uppercase() },
                     "category" to category,
                     "type" to "DEBIT"
+                ),
+                targetSegment = 4
+            )
+        }
+
+        // Finance / Expense Slot Extraction (Multilingual & Global)
+        val financeMatch = DexterIntentRouter.extractFinance(text)
+        if (financeMatch != null) {
+            return LayaDecisionResult(
+                intent = "LOG_EXPENSE",
+                confidence = 0.96f,
+                slots = mapOf(
+                    "amount" to financeMatch.amountRupees,
+                    "amountMinor" to financeMatch.amountMinor,
+                    "description" to financeMatch.description,
+                    "category" to if (financeMatch.category == "Transportation") "Travel & Fuel" else financeMatch.category,
+                    "type" to financeMatch.type
                 ),
                 targetSegment = 4
             )
@@ -424,5 +424,244 @@ class LayaEngine private constructor(private val context: Context?) {
         val dir = File(baseDir, MODEL_SUBDIR)
         if (!dir.exists()) dir.mkdirs()
         return File(dir, MODEL_FILENAME)
+    }
+
+    /**
+     * Inspects acoustic tokens, Laya slot extraction, and target SQLite segments
+     * for visual diagnostics in the Voice & Pipeline Lab.
+     */
+    fun analyzePipeline(query: String): VoicePipelineTrace {
+        val startNs = System.nanoTime()
+        val clean = DexterIntentRouter.stripWakeWord(query).trim()
+        val lower = clean.lowercase()
+
+        // 1. Language & Accent Detection
+        val languageTag = when {
+            Regex("[\\u4e00-\\u9fa5]").containsMatchIn(clean) -> "Chinese (中文)"
+            Regex("[\\u0400-\\u04FF]").containsMatchIn(clean) -> "Russian (Русский)"
+            Regex("[\\u0900-\\u097F]").containsMatchIn(clean) -> "Hindi (हिन्दी)"
+            lower.contains(Regex("\\b(kharcha|rupaye|banao|karo|likho|chai|nashta|diye)\\b")) -> "Hindi / Hinglish"
+            lower.contains(Regex("\\b(spen|bucks|drop|chuck|blew|boba|alram|crate task|ad task)\\b")) -> "Colloquial / Accented English"
+            else -> "Standard English"
+        }
+
+        val accentNote = when {
+            languageTag.contains("Accented") -> "Phonetic / Slang Accent Tolerated"
+            languageTag.contains("Chinese") -> "Hanzi Character Slot Extraction"
+            languageTag.contains("Russian") -> "Cyrillic Case & Conjugation Normalized"
+            languageTag.contains("Hindi") -> "Transliterated / Hinglish Mapping"
+            else -> "Clean Semantic Match"
+        }
+
+        val tokenTrace = PipelineToken(
+            raw = query,
+            normalized = clean,
+            languageTag = languageTag,
+            accentNote = accentNote
+        )
+
+        // 2. Intent Routing & Laya Classification
+        val parsed = DexterIntentRouter.parse(clean)
+        val slots = mutableListOf<ExtractedSlot>()
+        val dbTraces = mutableListOf<DatabaseRowTrace>()
+
+        var targetSegment = 1
+        var segmentName = "Tasks & Execution"
+        var responseText = "Action completed."
+
+        when (parsed.intent) {
+            "CHAINED_MULTI_COMMAND" -> {
+                targetSegment = 1
+                segmentName = "Multi-Domain Compound Pipeline"
+                @Suppress("UNCHECKED_CAST")
+                val subIntents = parsed.parameters["subIntents"] as? List<ParsedIntent> ?: emptyList()
+                val subMessages = mutableListOf<String>()
+
+                subIntents.forEachIndexed { index, sub ->
+                    slots.add(ExtractedSlot("sub_action_$index", sub.intent, "ACTION"))
+                    when (sub.intent) {
+                        "CREATE_TASK" -> {
+                            val title = sub.parameters["title"]?.toString() ?: "Task"
+                            slots.add(ExtractedSlot("task_title", title, "ENTITY"))
+                            dbTraces.add(DatabaseRowTrace(
+                                tableName = "tasks",
+                                segmentNumber = 1,
+                                segmentTitle = "Tasks & Execution",
+                                operation = "INSERT",
+                                rowData = mapOf("title" to title, "status" to "PENDING", "priority" to "NORMAL")
+                            ))
+                            subMessages.add("Created task '$title'")
+                        }
+                        "LOG_EXPENSE", "LOG_TRANSACTION" -> {
+                            val amt = sub.parameters["amountRupees"]?.toString() ?: "0.0"
+                            val desc = sub.parameters["description"]?.toString() ?: "Expense"
+                            val cat = sub.parameters["category"]?.toString() ?: "General"
+                            slots.add(ExtractedSlot("expense_amount", amt, "METRIC"))
+                            slots.add(ExtractedSlot("expense_category", cat, "CATEGORY"))
+                            dbTraces.add(DatabaseRowTrace(
+                                tableName = "finance_transactions",
+                                segmentNumber = 4,
+                                segmentTitle = "Personal Finance & Ledger",
+                                operation = "INSERT",
+                                rowData = mapOf("amount" to amt, "desc" to desc, "category" to cat, "type" to "DEBIT")
+                            ))
+                            subMessages.add("Logged expense of $amt for $desc ($cat)")
+                        }
+                        "CREATE_ALARM" -> {
+                            val label = sub.parameters["label"]?.toString() ?: "Alarm"
+                            slots.add(ExtractedSlot("alarm_label", label, "TEMPORAL"))
+                            dbTraces.add(DatabaseRowTrace(
+                                tableName = "alarms",
+                                segmentNumber = 6,
+                                segmentTitle = "Alarms & Reminders",
+                                operation = "INSERT",
+                                rowData = mapOf("label" to label, "is_enabled" to "1")
+                            ))
+                            subMessages.add("Set alarm for '$label'")
+                        }
+                        else -> {
+                            subMessages.add("Executed ${sub.intent}")
+                        }
+                    }
+                }
+                responseText = subMessages.joinToString(" and ")
+            }
+            "CREATE_TASK" -> {
+                targetSegment = 1
+                segmentName = "Tasks & Execution"
+                val title = parsed.parameters["title"]?.toString() ?: clean
+                val priority = parsed.parameters["priority"]?.toString() ?: "NORMAL"
+                slots.add(ExtractedSlot("title", title, "ENTITY"))
+                slots.add(ExtractedSlot("priority", priority, "PRIORITY"))
+                dbTraces.add(DatabaseRowTrace(
+                    tableName = "tasks",
+                    segmentNumber = 1,
+                    segmentTitle = "Tasks & Execution",
+                    operation = "INSERT",
+                    rowData = mapOf("title" to title, "status" to "PENDING", "priority" to priority)
+                ))
+                responseText = "Added task '$title' to your execution sprint."
+            }
+            "LOG_EXPENSE", "LOG_TRANSACTION" -> {
+                targetSegment = 4
+                segmentName = "Personal Finance & Ledger"
+                val amt = parsed.parameters["amountRupees"]?.toString() ?: "0.0"
+                val desc = parsed.parameters["description"]?.toString() ?: "Expense"
+                val cat = parsed.parameters["category"]?.toString() ?: "General"
+                val type = parsed.parameters["type"]?.toString() ?: "DEBIT"
+                slots.add(ExtractedSlot("amount", amt, "METRIC"))
+                slots.add(ExtractedSlot("description", desc, "ENTITY"))
+                slots.add(ExtractedSlot("category", cat, "CATEGORY"))
+                slots.add(ExtractedSlot("type", type, "ACTION"))
+                dbTraces.add(DatabaseRowTrace(
+                    tableName = "finance_transactions",
+                    segmentNumber = 4,
+                    segmentTitle = "Personal Finance & Ledger",
+                    operation = "INSERT",
+                    rowData = mapOf("amount_minor" to ((amt.toDoubleOrNull() ?: 0.0) * 100).toLong().toString(), "description" to desc, "category" to cat, "type" to type)
+                ))
+                responseText = if (type == "CREDIT") "Recorded income of $amt for $desc." else "Logged expense of $amt for $desc under $cat."
+            }
+            "CREATE_ALARM" -> {
+                targetSegment = 6
+                segmentName = "Alarms & Timed Reminders"
+                val label = parsed.parameters["label"]?.toString() ?: "Alarm"
+                slots.add(ExtractedSlot("label", label, "TEMPORAL"))
+                dbTraces.add(DatabaseRowTrace(
+                    tableName = "alarms",
+                    segmentNumber = 6,
+                    segmentTitle = "Alarms & Timed Reminders",
+                    operation = "INSERT",
+                    rowData = mapOf("label" to label, "is_enabled" to "1")
+                ))
+                responseText = "Alarm set for '$label'."
+            }
+            "CREATE_GOAL" -> {
+                targetSegment = 3
+                segmentName = "Goals & Long-Term Targets"
+                val title = parsed.parameters["title"]?.toString() ?: clean
+                val cat = parsed.parameters["category"]?.toString() ?: "Personal"
+                val amt = parsed.parameters["target_amount"]?.toString() ?: "0.0"
+                val unit = parsed.parameters["metric_unit"]?.toString() ?: ""
+                slots.add(ExtractedSlot("title", title, "ENTITY"))
+                slots.add(ExtractedSlot("category", cat, "CATEGORY"))
+                if (amt != "0.0") slots.add(ExtractedSlot("target_amount", "$amt $unit", "METRIC"))
+                dbTraces.add(DatabaseRowTrace(
+                    tableName = "goals",
+                    segmentNumber = 3,
+                    segmentTitle = "Goals & Long-Term Targets",
+                    operation = "INSERT",
+                    rowData = mapOf("title" to title, "category" to cat, "target_amount" to amt, "metric_unit" to unit, "status" to "ACTIVE")
+                ))
+                responseText = "Created goal '$title' in $cat."
+            }
+            "LOG_JOURNAL" -> {
+                targetSegment = 5
+                segmentName = "Personal Diary & Notes"
+                val title = parsed.parameters["title"]?.toString() ?: "Note"
+                val mood = parsed.parameters["mood"]?.toString() ?: "Reflective"
+                val cat = parsed.parameters["category"]?.toString() ?: "Personal"
+                slots.add(ExtractedSlot("title", title, "ENTITY"))
+                slots.add(ExtractedSlot("mood", mood, "STATE"))
+                slots.add(ExtractedSlot("category", cat, "CATEGORY"))
+                dbTraces.add(DatabaseRowTrace(
+                    tableName = "journal_entries",
+                    segmentNumber = 5,
+                    segmentTitle = "Personal Diary & Notes",
+                    operation = "INSERT",
+                    rowData = mapOf("title" to title, "mood" to mood, "category" to cat)
+                ))
+                responseText = "Saved journal entry: '$title' ($mood)."
+            }
+            "CONVERSATIONAL_REASONING" -> {
+                targetSegment = 1
+                segmentName = "Cross-Segment Needle Reasoning"
+                val q = parsed.parameters["query"]?.toString() ?: clean
+                val needleResult = NeedleConversationalEngine.synthesizeResponse(q, null)
+                slots.add(ExtractedSlot("query", q, "QUERY"))
+                slots.add(ExtractedSlot("persona_tone", needleResult.personaTone, "PERSONA"))
+                slots.add(ExtractedSlot("accessed_segments", needleResult.accessedSegments.joinToString(), "METRIC"))
+                needleResult.accessedSegments.forEach { seg ->
+                    val tbl = when (seg) {
+                        1 -> "tasks"
+                        4 -> "finance_transactions"
+                        3 -> "goals"
+                        5 -> "journal_entries"
+                        8 -> "contacts"
+                        else -> "database_segment_$seg"
+                    }
+                    dbTraces.add(DatabaseRowTrace(
+                        tableName = tbl,
+                        segmentNumber = seg,
+                        segmentTitle = "Segment #$seg",
+                        operation = "READ_SYNTHESIS",
+                        rowData = mapOf("query" to q, "read_mode" to "NEEDLE_SCAN")
+                    ))
+                }
+                responseText = needleResult.answer
+            }
+            else -> {
+                slots.add(ExtractedSlot("raw_phrase", clean, "ENTITY"))
+                targetSegment = intentToSegment(parsed.intent)
+                segmentName = "Segment #$targetSegment"
+                responseText = "Processed '${parsed.intent}'."
+            }
+        }
+
+        val elapsedMs = (System.nanoTime() - startNs) / 1_000_000L
+
+        return VoicePipelineTrace(
+            query = query,
+            tokenTrace = tokenTrace,
+            intent = parsed.intent,
+            confidence = parsed.confidence,
+            targetSegment = targetSegment,
+            segmentName = segmentName,
+            slots = slots,
+            dbTraces = dbTraces,
+            responseText = responseText,
+            executionTimeMs = elapsedMs.coerceAtLeast(1L),
+            isSuccess = parsed.intent != "UNKNOWN" && parsed.intent != "EMPTY"
+        )
     }
 }

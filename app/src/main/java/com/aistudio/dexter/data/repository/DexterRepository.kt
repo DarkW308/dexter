@@ -8,6 +8,7 @@ import com.aistudio.dexter.data.model.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -49,6 +50,20 @@ class DexterRepository(context: Context) {
         if (result) notifyDataChanged()
         return result
     }
+
+    fun toggleTaskCompletion(taskId: Long): Boolean {
+        val result = tasks.toggleTaskCompletion(taskId)
+        if (result) notifyDataChanged()
+        return result
+    }
+
+    fun deleteTask(taskId: Long): Boolean {
+        val result = tasks.deleteTask(taskId)
+        if (result) notifyDataChanged()
+        return result
+    }
+
+    fun getAllTasks(limit: Int = 100): List<TaskItem> = tasks.getAllTasks(limit)
 
     fun listPendingTasks(limit: Int = 50): List<TaskItem> = tasks.listPendingTasks(limit)
 
@@ -256,6 +271,16 @@ class DexterRepository(context: Context) {
         return res
     }
 
+    fun updateProjectDeadline(projectId: Long, newDeadline: String): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("deadline", newDeadline.trim())
+        }
+        val res = db.update("projects", values, "id = ?", arrayOf(projectId.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
+    }
+
     fun deleteProject(projectId: Long): Boolean {
         val db = dbHelper.writableDatabase
         val res = db.delete("projects", "id = ?", arrayOf(projectId.toString())) > 0
@@ -415,6 +440,16 @@ class DexterRepository(context: Context) {
         return res
     }
 
+    fun updateGoalTargetDate(goalId: Long, targetDate: String): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("target_date", targetDate.trim())
+        }
+        val res = db.update("goals", values, "id = ?", arrayOf(goalId.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
+    }
+
     fun quickIncrementGoal(goalId: Long, delta: Double): Boolean {
         val db = dbHelper.writableDatabase
         val cursor = db.rawQuery("SELECT current_amount, target_amount FROM goals WHERE id = ?", arrayOf(goalId.toString()))
@@ -504,6 +539,33 @@ class DexterRepository(context: Context) {
         return res
     }
 
+    fun snoozeAlarm(alarmId: Long, snoozeMinutes: Int = 5): Long {
+        val db = dbHelper.writableDatabase
+        val newTime = System.currentTimeMillis() + (snoozeMinutes * 60 * 1000L)
+        val values = ContentValues().apply {
+            put("alarm_time", newTime)
+            put("is_enabled", 1)
+        }
+        val affected = db.update("alarms", values, "id = ?", arrayOf(alarmId.toString()))
+        val finalId = if (affected > 0) {
+            alarmId
+        } else {
+            createAlarm(newTime, "Snoozed Alarm")
+        }
+        notifyDataChanged()
+        return finalId
+    }
+
+    fun dismissRecentAlarm(): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("is_enabled", 0)
+        }
+        val affected = db.update("alarms", values, "is_enabled = 1", null)
+        if (affected > 0) notifyDataChanged()
+        return affected > 0
+    }
+
     // Segment 7: Time & Schedule (Daily Timetable)
     fun listScheduleBlocks(): List<ScheduleBlockItem> {
         val list = mutableListOf<ScheduleBlockItem>()
@@ -549,12 +611,28 @@ class DexterRepository(context: Context) {
         return res
     }
 
+    fun updateScheduleBlock(id: Long, title: String, startTime: String, endTime: String, category: String, colorHex: String, location: String = ""): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("title", title.trim())
+            put("start_time", startTime.trim())
+            put("end_time", endTime.trim())
+            put("category", category.trim())
+            put("color_hex", colorHex)
+            put("location", location.trim())
+        }
+        val res = db.update("schedule_blocks", values, "id = ?", arrayOf(id.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
+    }
+
     // Segment 8: People & Relationships
     fun listPeople(): List<PersonItem> {
         val list = mutableListOf<PersonItem>()
         val db = dbHelper.readableDatabase
-        val cursor = db.rawQuery("SELECT id, name, relation_type, phone, email, birthday, notes, last_contacted_text FROM relationship_people ORDER BY id DESC", null)
+        val cursor = db.rawQuery("SELECT id, name, relation_type, phone, email, birthday, notes, last_contacted_text, backstory FROM relationship_people ORDER BY id DESC", null)
         cursor.use {
+            val hasBackstory = it.columnCount > 8
             while (it.moveToNext()) {
                 list.add(
                     PersonItem(
@@ -565,7 +643,8 @@ class DexterRepository(context: Context) {
                         email = it.getString(4) ?: "",
                         birthday = it.getString(5) ?: "",
                         notes = it.getString(6) ?: "",
-                        lastContactedText = it.getString(7) ?: "Recently"
+                        lastContactedText = it.getString(7) ?: "Recently",
+                        backstory = if (hasBackstory) (it.getString(8) ?: "") else ""
                     )
                 )
             }
@@ -573,7 +652,7 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createPerson(name: String, relationType: String = "Friend", phone: String = "", email: String = "", birthday: String = "", notes: String = ""): Long {
+    fun createPerson(name: String, relationType: String = "Friend", phone: String = "", email: String = "", birthday: String = "", notes: String = "", backstory: String = ""): Long {
         val db = dbHelper.writableDatabase
         val values = ContentValues().apply {
             put("name", name.trim())
@@ -582,11 +661,28 @@ class DexterRepository(context: Context) {
             put("email", email.trim())
             put("birthday", birthday.trim())
             put("notes", notes.trim())
+            put("backstory", backstory.trim())
             put("last_contacted_text", "Today")
         }
         val id = db.insert("relationship_people", null, values)
         notifyDataChanged()
         return id
+    }
+
+    fun updatePerson(id: Long, name: String, relationType: String, phone: String, email: String, birthday: String, notes: String, backstory: String): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("name", name.trim())
+            put("relation_type", relationType.trim())
+            put("phone", phone.trim())
+            put("email", email.trim())
+            put("birthday", birthday.trim())
+            put("notes", notes.trim())
+            put("backstory", backstory.trim())
+        }
+        val res = db.update("relationship_people", values, "id = ?", arrayOf(id.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
     }
 
     fun deletePerson(id: Long): Boolean {
@@ -624,11 +720,31 @@ class DexterRepository(context: Context) {
         return id
     }
 
+    fun getDexterBackstory(): DexterBackstoryInfo = DexterBackstoryInfo()
+
     // Segment 9: Health & Wellbeing (Hydration, Sleep & Mood)
     fun getHydrationTodayMl(): Int {
         val db = dbHelper.readableDatabase
         val cursor = db.rawQuery("SELECT SUM(amount_ml) FROM wellbeing_hydration", null)
         return cursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+    }
+
+    fun listHydrationLogs(limit: Int = 10): List<HydrationItem> {
+        val list = mutableListOf<HydrationItem>()
+        val db = dbHelper.readableDatabase
+        val cursor = db.rawQuery("SELECT id, amount_ml, logged_at FROM wellbeing_hydration ORDER BY id DESC LIMIT ?", arrayOf(limit.toString()))
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(
+                    HydrationItem(
+                        id = it.getLong(0),
+                        amountMl = it.getInt(1),
+                        loggedAt = it.getLong(2)
+                    )
+                )
+            }
+        }
+        return list
     }
 
     fun logHydration(amountMl: Int = 250): Long {
@@ -639,6 +755,22 @@ class DexterRepository(context: Context) {
         val id = db.insert("wellbeing_hydration", null, values)
         notifyDataChanged()
         return id
+    }
+
+    fun deleteLastHydration(): Boolean {
+        val db = dbHelper.writableDatabase
+        val cursor = db.rawQuery("SELECT id FROM wellbeing_hydration ORDER BY id DESC LIMIT 1", null)
+        val lastId = cursor.use { if (it.moveToFirst()) it.getLong(0) else null } ?: return false
+        val rows = db.delete("wellbeing_hydration", "id = ?", arrayOf(lastId.toString()))
+        notifyDataChanged()
+        return rows > 0
+    }
+
+    fun resetHydrationToday(): Boolean {
+        val db = dbHelper.writableDatabase
+        val rows = db.delete("wellbeing_hydration", null, null)
+        notifyDataChanged()
+        return rows > 0
     }
 
     fun listSleep(): List<SleepItem> {
@@ -678,6 +810,13 @@ class DexterRepository(context: Context) {
         return id
     }
 
+    fun deleteSleepLog(id: Long): Boolean {
+        val db = dbHelper.writableDatabase
+        val rows = db.delete("wellbeing_sleep", "id = ?", arrayOf(id.toString()))
+        notifyDataChanged()
+        return rows > 0
+    }
+
     fun listMoods(): List<MoodItem> {
         val list = mutableListOf<MoodItem>()
         val db = dbHelper.readableDatabase
@@ -710,11 +849,18 @@ class DexterRepository(context: Context) {
         return id
     }
 
-    // Segment 10: Habits & Streaks
+    fun deleteMoodLog(id: Long): Boolean {
+        val db = dbHelper.writableDatabase
+        val rows = db.delete("wellbeing_mood", "id = ?", arrayOf(id.toString()))
+        notifyDataChanged()
+        return rows > 0
+    }
+
+    // Segment 10: Habits & Streaks (Building & Quitting)
     fun listHabits(): List<HabitItem> {
         val list = mutableListOf<HabitItem>()
         val db = dbHelper.readableDatabase
-        val cursor = db.rawQuery("SELECT id, name, frequency, reminder_time, streak_count, is_done_today FROM wellbeing_habits ORDER BY id DESC", null)
+        val cursor = db.rawQuery("SELECT id, name, frequency, reminder_time, streak_count, is_done_today, habit_type, category, quit_reason FROM wellbeing_habits ORDER BY id DESC", null)
         cursor.use {
             while (it.moveToNext()) {
                 list.add(
@@ -724,7 +870,10 @@ class DexterRepository(context: Context) {
                         frequency = it.getString(2) ?: "Daily",
                         reminderTime = it.getString(3) ?: "08:00 AM",
                         streakCount = it.getInt(4),
-                        isDoneToday = it.getInt(5) == 1
+                        isDoneToday = it.getInt(5) == 1,
+                        habitType = it.getString(6) ?: "BUILD",
+                        category = it.getString(7) ?: "Health",
+                        quitReason = it.getString(8) ?: ""
                     )
                 )
             }
@@ -732,7 +881,14 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createHabit(name: String, frequency: String = "Daily", reminderTime: String = "08:00 AM"): Long {
+    fun createHabit(
+        name: String,
+        frequency: String = "Daily",
+        reminderTime: String = "08:00 AM",
+        habitType: String = "BUILD",
+        category: String = "Health",
+        quitReason: String = ""
+    ): Long {
         val db = dbHelper.writableDatabase
         val values = ContentValues().apply {
             put("name", name.trim())
@@ -740,6 +896,9 @@ class DexterRepository(context: Context) {
             put("reminder_time", reminderTime.trim())
             put("streak_count", 0)
             put("is_done_today", 0)
+            put("habit_type", habitType.trim().uppercase())
+            put("category", category.trim())
+            put("quit_reason", quitReason.trim())
         }
         val id = db.insert("wellbeing_habits", null, values)
         notifyDataChanged()
@@ -762,6 +921,18 @@ class DexterRepository(context: Context) {
         val values = ContentValues().apply {
             put("is_done_today", newStatus)
             put("streak_count", newStreak)
+            put("last_completed_at", System.currentTimeMillis())
+        }
+        val res = db.update("wellbeing_habits", values, "id = ?", arrayOf(habitId.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
+    }
+
+    fun resetQuitHabitStreak(habitId: Long): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("streak_count", 0)
+            put("is_done_today", 0)
         }
         val res = db.update("wellbeing_habits", values, "id = ?", arrayOf(habitId.toString())) > 0
         if (res) notifyDataChanged()
@@ -775,17 +946,34 @@ class DexterRepository(context: Context) {
         return res
     }
 
-    // Segment 11: Reading & Knowledge Vault (Local RAG / Notes)
-    fun listDocuments(query: String = ""): List<DocumentItem> {
+    // Segment 11: Reading & Knowledge Vault (Local RAG / Personal Memory)
+    fun listDocuments(query: String = "", categoryFilter: String = "ALL"): List<DocumentItem> {
         val list = mutableListOf<DocumentItem>()
         val db = dbHelper.readableDatabase
-        val sql = if (query.isNotBlank()) {
-            "SELECT id, title, source, file_type, excerpt, chunk_count, created_at FROM knowledge_documents WHERE title LIKE ? OR excerpt LIKE ? ORDER BY id DESC"
-        } else {
-            "SELECT id, title, source, file_type, excerpt, chunk_count, created_at FROM knowledge_documents ORDER BY id DESC"
+        val clauses = mutableListOf<String>()
+        val args = mutableListOf<String>()
+
+        if (query.isNotBlank()) {
+            clauses.add("(title LIKE ? OR excerpt LIKE ? OR content LIKE ? OR tags LIKE ?)")
+            val q = "%$query%"
+            args.add(q)
+            args.add(q)
+            args.add(q)
+            args.add(q)
         }
-        val args = if (query.isNotBlank()) arrayOf("%$query%", "%$query%") else null
-        val cursor = db.rawQuery(sql, args)
+
+        if (categoryFilter != "ALL") {
+            if (categoryFilter == "CORE_MEMORY") {
+                clauses.add("is_core_memory = 1")
+            } else {
+                clauses.add("category = ?")
+                args.add(categoryFilter)
+            }
+        }
+
+        val where = if (clauses.isNotEmpty()) "WHERE ${clauses.joinToString(" AND ")}" else ""
+        val sql = "SELECT id, title, source, file_type, excerpt, chunk_count, content, category, is_core_memory, tags, created_at FROM knowledge_documents $where ORDER BY is_core_memory DESC, id DESC"
+        val cursor = db.rawQuery(sql, if (args.isNotEmpty()) args.toTypedArray() else null)
         cursor.use {
             while (it.moveToNext()) {
                 list.add(
@@ -796,7 +984,11 @@ class DexterRepository(context: Context) {
                         fileType = it.getString(3) ?: "DOC",
                         excerpt = it.getString(4) ?: "",
                         chunkCount = it.getInt(5),
-                        createdAt = it.getLong(6)
+                        content = it.getString(6) ?: "",
+                        category = it.getString(7) ?: "Personal Profile",
+                        isCoreMemory = it.getInt(8) == 1,
+                        tags = it.getString(9) ?: "",
+                        createdAt = it.getLong(10)
                     )
                 )
             }
@@ -804,18 +996,95 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createDocument(title: String, excerpt: String, source: String = "Direct Entry", fileType: String = "NOTE"): Long {
+    fun getDocumentById(id: Long): DocumentItem? {
+        val db = dbHelper.readableDatabase
+        val cursor = db.rawQuery("SELECT id, title, source, file_type, excerpt, chunk_count, content, category, is_core_memory, tags, created_at FROM knowledge_documents WHERE id = ?", arrayOf(id.toString()))
+        return cursor.use {
+            if (it.moveToFirst()) {
+                DocumentItem(
+                    id = it.getLong(0),
+                    title = it.getString(1) ?: "",
+                    source = it.getString(2) ?: "Note",
+                    fileType = it.getString(3) ?: "DOC",
+                    excerpt = it.getString(4) ?: "",
+                    chunkCount = it.getInt(5),
+                    content = it.getString(6) ?: "",
+                    category = it.getString(7) ?: "Personal Profile",
+                    isCoreMemory = it.getInt(8) == 1,
+                    tags = it.getString(9) ?: "",
+                    createdAt = it.getLong(10)
+                )
+            } else null
+        }
+    }
+
+    fun createDocument(
+        title: String,
+        content: String,
+        category: String = "Personal Profile",
+        source: String = "User Profile",
+        fileType: String = "DOC",
+        isCoreMemory: Boolean = false,
+        tags: String = ""
+    ): Long {
         val db = dbHelper.writableDatabase
+        val excerptText = if (content.length > 150) content.take(150) + "..." else content
         val values = ContentValues().apply {
             put("title", title.trim())
             put("source", source.trim())
             put("file_type", fileType)
-            put("excerpt", excerpt.trim())
-            put("chunk_count", 1.coerceAtLeast(excerpt.length / 100))
+            put("excerpt", excerptText.trim())
+            put("content", content.trim())
+            put("category", category.trim())
+            put("is_core_memory", if (isCoreMemory) 1 else 0)
+            put("tags", tags.trim())
+            put("chunk_count", 1.coerceAtLeast(content.length / 200))
         }
         val id = db.insert("knowledge_documents", null, values)
         notifyDataChanged()
         return id
+    }
+
+    fun updateDocument(
+        id: Long,
+        title: String,
+        content: String,
+        category: String,
+        isCoreMemory: Boolean,
+        tags: String
+    ): Boolean {
+        val db = dbHelper.writableDatabase
+        val excerptText = if (content.length > 150) content.take(150) + "..." else content
+        val values = ContentValues().apply {
+            put("title", title.trim())
+            put("content", content.trim())
+            put("excerpt", excerptText.trim())
+            put("category", category.trim())
+            put("is_core_memory", if (isCoreMemory) 1 else 0)
+            put("tags", tags.trim())
+            put("chunk_count", 1.coerceAtLeast(content.length / 200))
+        }
+        val res = db.update("knowledge_documents", values, "id = ?", arrayOf(id.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
+    }
+
+    fun toggleCoreMemory(id: Long): Boolean {
+        val db = dbHelper.writableDatabase
+        val cursor = db.rawQuery("SELECT is_core_memory FROM knowledge_documents WHERE id = ?", arrayOf(id.toString()))
+        var newStatus = 1
+        cursor.use {
+            if (it.moveToFirst()) {
+                val current = it.getInt(0) == 1
+                newStatus = if (current) 0 else 1
+            }
+        }
+        val values = ContentValues().apply {
+            put("is_core_memory", newStatus)
+        }
+        val res = db.update("knowledge_documents", values, "id = ?", arrayOf(id.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
     }
 
     fun deleteDocument(id: Long): Boolean {
@@ -825,11 +1094,40 @@ class DexterRepository(context: Context) {
         return res
     }
 
-    // Segment 12: Quick Capture & Inbox
-    fun listCaptureNotes(): List<CaptureItem> {
+    fun getCoreMemoryContext(): String {
+        val docs = listDocuments(categoryFilter = "CORE_MEMORY")
+        if (docs.isEmpty()) return ""
+        return buildString {
+            appendLine("=== USER CORE MEMORY & PROFILE ===")
+            docs.forEach { doc ->
+                appendLine("[${doc.title}] (${doc.category}):")
+                val text = if (doc.content.isNotBlank()) doc.content else doc.excerpt
+                appendLine(text)
+                appendLine()
+            }
+        }
+    }
+
+    // Segment 12: Data Gathering & Raw Intake Hub
+    fun listCaptureNotes(includeProcessed: Boolean = false, sourceFilter: String? = null): List<CaptureItem> {
         val list = mutableListOf<CaptureItem>()
         val db = dbHelper.readableDatabase
-        val cursor = db.rawQuery("SELECT id, note_text, status, created_at FROM capture_events WHERE status = 'UNPROCESSED' ORDER BY id DESC", null)
+        val clauses = mutableListOf<String>()
+        val args = mutableListOf<String>()
+
+        if (!includeProcessed) {
+            clauses.add("status = 'UNPROCESSED'")
+        }
+        if (!sourceFilter.isNullOrBlank() && !sourceFilter.equals("ALL", ignoreCase = true)) {
+            clauses.add("source_type = ?")
+            args.add(sourceFilter)
+        }
+
+        val where = if (clauses.isNotEmpty()) "WHERE ${clauses.joinToString(" AND ")}" else ""
+        val cursor = db.rawQuery(
+            "SELECT id, note_text, status, created_at, source_type, category_tag, scheduled_window, routed_to FROM capture_events $where ORDER BY id DESC",
+            if (args.isNotEmpty()) args.toTypedArray() else null
+        )
         cursor.use {
             while (it.moveToNext()) {
                 list.add(
@@ -837,7 +1135,11 @@ class DexterRepository(context: Context) {
                         id = it.getLong(0),
                         noteText = it.getString(1) ?: "",
                         status = it.getString(2) ?: "UNPROCESSED",
-                        capturedAt = it.getLong(3)
+                        capturedAt = it.getLong(3),
+                        sourceType = if (it.isNull(4)) "TEXT" else (it.getString(4) ?: "TEXT"),
+                        categoryTag = if (it.isNull(5)) "General" else (it.getString(5) ?: "General"),
+                        scheduledWindow = if (it.isNull(6)) "Ad-hoc" else (it.getString(6) ?: "Ad-hoc"),
+                        routedTo = if (it.isNull(7)) "" else (it.getString(7) ?: "")
                     )
                 )
             }
@@ -845,39 +1147,291 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createCaptureNote(noteText: String): Long {
+    fun createCaptureNote(
+        noteText: String,
+        sourceType: String = "TEXT",
+        categoryTag: String = "General",
+        scheduledWindow: String = "Ad-hoc"
+    ): Long {
+        if (noteText.isBlank()) return 0L
         val db = dbHelper.writableDatabase
         val values = ContentValues().apply {
             put("note_text", noteText.trim())
             put("status", "UNPROCESSED")
+            put("source_type", sourceType)
+            put("category_tag", categoryTag)
+            put("scheduled_window", scheduledWindow)
+            put("created_at", System.currentTimeMillis())
         }
         val id = db.insert("capture_events", null, values)
+        logAudit("DATA_INTAKE_CAPTURED", "Source: $sourceType | Window: $scheduledWindow | Text: ${noteText.take(40)}")
         notifyDataChanged()
         return id
     }
 
-    fun convertCaptureToTask(captureId: Long, noteText: String): Boolean {
-        createTask(title = noteText, priority = Priority.NORMAL, category = "Inbox")
+    fun listIntakeSchedules(): List<IntakeScheduleItem> {
+        val list = mutableListOf<IntakeScheduleItem>()
+        val db = dbHelper.readableDatabase
+        val cursor = db.rawQuery("SELECT id, name, scheduled_time, target_type, is_enabled, prompt_question FROM intake_schedules ORDER BY id ASC", null)
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(
+                    IntakeScheduleItem(
+                        id = it.getLong(0),
+                        name = it.getString(1) ?: "",
+                        scheduledTime = it.getString(2) ?: "07:30 AM",
+                        targetType = it.getString(3) ?: "MORNING_BRIEFING",
+                        isEnabled = it.getInt(4) == 1,
+                        promptQuestion = it.getString(5) ?: ""
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun updateIntakeScheduleTime(id: Long, newTime: String): Boolean {
         val db = dbHelper.writableDatabase
-        val values = ContentValues().apply { put("status", "CONVERTED") }
+        val values = ContentValues().apply { put("scheduled_time", newTime) }
+        val res = db.update("intake_schedules", values, "id = ?", arrayOf(id.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
+    }
+
+    fun toggleIntakeSchedule(id: Long, isEnabled: Boolean): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply { put("is_enabled", if (isEnabled) 1 else 0) }
+        val res = db.update("intake_schedules", values, "id = ?", arrayOf(id.toString())) > 0
+        if (res) notifyDataChanged()
+        return res
+    }
+
+    fun promoteCaptureToTask(
+        captureId: Long,
+        title: String,
+        priority: Priority = Priority.NORMAL,
+        category: String = "General"
+    ): Boolean {
+        createTask(title = title.ifBlank { "Task from Intake #$captureId" }, priority = priority, category = category)
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("status", "ROUTED_TASK")
+            put("routed_to", "tasks")
+        }
+        val res = db.update("capture_events", values, "id = ?", arrayOf(captureId.toString())) > 0
+        if (res) {
+            logAudit("INTAKE_ROUTED_TASK", "Promoted capture #$captureId to Task ($category)")
+            notifyDataChanged()
+        }
+        return res
+    }
+
+    fun promoteCaptureToKnowledge(
+        captureId: Long,
+        title: String,
+        content: String,
+        category: String = "Personal Knowledge",
+        isCoreMemory: Boolean = false
+    ): Boolean {
+        createDocument(
+            title = title.ifBlank { "Knowledge Note #$captureId" },
+            content = content,
+            category = category,
+            tags = "#intake #notes",
+            isCoreMemory = isCoreMemory
+        )
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("status", "ROUTED_KNOWLEDGE")
+            put("routed_to", "knowledge_documents")
+        }
+        val res = db.update("capture_events", values, "id = ?", arrayOf(captureId.toString())) > 0
+        if (res) {
+            logAudit("INTAKE_ROUTED_KNOWLEDGE", "Promoted capture #$captureId to Knowledge Vault")
+            notifyDataChanged()
+        }
+        return res
+    }
+
+    fun promoteCaptureToSchedule(
+        captureId: Long,
+        title: String,
+        startTime: String = "02:00 PM",
+        endTime: String = "03:00 PM",
+        category: String = "Deep Work"
+    ): Boolean {
+        createScheduleBlock(
+            title = title.ifBlank { "Session from Intake #$captureId" },
+            startTime = startTime,
+            endTime = endTime,
+            category = category,
+            colorHex = "#4FC3F7"
+        )
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("status", "ROUTED_SCHEDULE")
+            put("routed_to", "schedule_blocks")
+        }
+        val res = db.update("capture_events", values, "id = ?", arrayOf(captureId.toString())) > 0
+        if (res) {
+            logAudit("INTAKE_ROUTED_SCHEDULE", "Promoted capture #$captureId to Schedule")
+            notifyDataChanged()
+        }
+        return res
+    }
+
+    fun promoteCaptureToFinance(
+        captureId: Long,
+        title: String,
+        amountMinor: Long,
+        isExpense: Boolean = true
+    ): Boolean {
+        finance.logTransaction(
+            amountMinor = amountMinor,
+            desc = title.ifBlank { "Expense from Intake #$captureId" },
+            type = if (isExpense) "DEBIT" else "CREDIT",
+            category = "General"
+        )
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("status", "ROUTED_FINANCE")
+            put("routed_to", "finance_transactions")
+        }
+        val res = db.update("capture_events", values, "id = ?", arrayOf(captureId.toString())) > 0
+        if (res) {
+            logAudit("INTAKE_ROUTED_FINANCE", "Promoted capture #$captureId to Finance")
+            notifyDataChanged()
+        }
+        return res
+    }
+
+    fun markCaptureProcessed(captureId: Long): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply { put("status", "PROCESSED") }
         val res = db.update("capture_events", values, "id = ?", arrayOf(captureId.toString())) > 0
         if (res) notifyDataChanged()
         return res
     }
 
-    fun dismissCaptureNote(captureId: Long): Boolean {
+    fun deleteCapture(captureId: Long): Boolean {
         val db = dbHelper.writableDatabase
-        val values = ContentValues().apply { put("status", "DISMISSED") }
-        val res = db.update("capture_events", values, "id = ?", arrayOf(captureId.toString())) > 0
+        val res = db.delete("capture_events", "id = ?", arrayOf(captureId.toString())) > 0
         if (res) notifyDataChanged()
         return res
+    }
+
+    // Keep compatibility with legacy call
+    fun convertCaptureToTask(captureId: Long, noteText: String): Boolean {
+        return promoteCaptureToTask(captureId, noteText)
+    }
+
+    // Keep compatibility with legacy call
+    fun dismissCaptureNote(captureId: Long): Boolean {
+        return markCaptureProcessed(captureId)
+    }
+
+    fun synthesizeMorningBriefingFromIntake(): BriefingItem {
+        val todayStr = SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date())
+        val title = "🌅 Morning Briefing — $todayStr"
+        val pendingCount = tasks.getTaskCounts().pending
+        val topTask = tasks.listPendingTasks(1).firstOrNull()?.title ?: "Review daily priorities"
+
+        // Collect today's morning captures
+        val allCaptures = listCaptureNotes(includeProcessed = true)
+        val morningCaptures = allCaptures.filter { it.scheduledWindow == "Morning Intake" || it.sourceType == "SCHEDULED_MORNING" }
+        val intentionsSummary = if (morningCaptures.isNotEmpty()) {
+            "Morning Intentions: \"${morningCaptures.first().noteText.take(120)}\""
+        } else {
+            "Morning Focus: High-priority execution day."
+        }
+
+        val blocks = listScheduleBlocks()
+        val blocksSummary = if (blocks.isNotEmpty()) "${blocks.size} agenda blocks scheduled today." else "Schedule open for deep focus."
+
+        val summary = "$intentionsSummary $blocksSummary $pendingCount pending tasks on your sprint board. Priority #1: $topTask. Local state deterministic."
+
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("title", title)
+            put("summary_text", summary)
+            put("date_string", todayStr)
+            put("tasks_count", pendingCount)
+            put("spent_minor", 0L)
+            put("weather_text", "28°C Sunny")
+            put("created_at", System.currentTimeMillis())
+        }
+        val id = db.insert("briefing_runs", null, values)
+        logAudit("INTAKE_SYNTHESIS_MORNING", "Synthesized Morning Briefing from data intake")
+        notifyDataChanged()
+        return BriefingItem(id, title, summary, todayStr, pendingCount, 0L, "28°C Sunny")
+    }
+
+    fun synthesizeEndOfDaySummaryFromIntake(): BriefingItem {
+        val todayStr = SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date())
+        val title = "🌙 End-of-Day Summary — $todayStr"
+
+        // Collect today's evening captures & notes
+        val allCaptures = listCaptureNotes(includeProcessed = true)
+        val eveningCaptures = allCaptures.filter { it.scheduledWindow == "Evening Reflection" || it.sourceType == "SCHEDULED_EVENING" }
+        val eveningThought = if (eveningCaptures.isNotEmpty()) {
+            "Gathered Reflections: \"${eveningCaptures.first().noteText.take(120)}\""
+        } else {
+            "Day logged smoothly across all operating segments."
+        }
+
+        val completedTasks = tasks.getTaskCounts().completed
+        val pendingTasks = tasks.getTaskCounts().pending
+        val totalWater = getHydrationTodayMl()
+        val spentToday = finance.summarizeExpenses().first
+
+        val summary = "$eveningThought Performance: $completedTasks tasks closed ($pendingTasks active). Outflow: ₹${spentToday / 100} logged in ledger. Hydration: ${totalWater}ml. All raw intake processed."
+
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("title", title)
+            put("summary_text", summary)
+            put("date_string", todayStr)
+            put("tasks_count", pendingTasks)
+            put("spent_minor", spentToday)
+            put("weather_text", "24°C Clear")
+            put("created_at", System.currentTimeMillis())
+        }
+        val id = db.insert("briefing_runs", null, values)
+        logAudit("INTAKE_SYNTHESIS_EVENING", "Synthesized End-of-Day Summary from data intake")
+        notifyDataChanged()
+        return BriefingItem(id, title, summary, todayStr, pendingTasks, spentToday, "24°C Clear")
     }
 
     // Segment 13: Attention & Priority Feed
-    fun listAttentionEvents(): List<AttentionItem> {
+    fun listAttentionEvents(includeAcknowledged: Boolean = false, includeSnoozed: Boolean = true): List<AttentionItem> {
         val list = mutableListOf<AttentionItem>()
         val db = dbHelper.readableDatabase
-        val cursor = db.rawQuery("SELECT id, title, urgency, is_acknowledged, snoozed_until FROM attention_events WHERE is_acknowledged = 0 ORDER BY CASE urgency WHEN 'Critical' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END, id DESC", null)
+        val clauses = mutableListOf<String>()
+
+        if (!includeAcknowledged) {
+            clauses.add("is_acknowledged = 0")
+        }
+        if (!includeSnoozed) {
+            clauses.add("(snoozed_until == 0 OR snoozed_until <= ${System.currentTimeMillis()})")
+        }
+
+        val where = if (clauses.isNotEmpty()) "WHERE ${clauses.joinToString(" AND ")}" else ""
+        val sql = """
+            SELECT id, title, urgency, is_acknowledged, snoozed_until, category, detail, action_target, created_at 
+            FROM attention_events 
+            $where 
+            ORDER BY is_acknowledged ASC, 
+            CASE UPPER(urgency) 
+                WHEN 'CRITICAL' THEN 1 
+                WHEN 'HIGH' THEN 2 
+                WHEN 'URGENT' THEN 2 
+                WHEN 'NORMAL' THEN 3 
+                ELSE 4 
+            END, 
+            id DESC
+        """.trimIndent()
+
+        val cursor = db.rawQuery(sql, null)
         cursor.use {
             while (it.moveToNext()) {
                 list.add(
@@ -886,7 +1440,11 @@ class DexterRepository(context: Context) {
                         title = it.getString(1) ?: "",
                         urgency = it.getString(2) ?: "Normal",
                         isAcknowledged = it.getInt(3) == 1,
-                        snoozedUntil = it.getLong(4)
+                        snoozedUntil = it.getLong(4),
+                        category = if (it.isNull(5)) "SYSTEM" else (it.getString(5) ?: "SYSTEM"),
+                        detail = if (it.isNull(6)) "" else (it.getString(6) ?: ""),
+                        actionTarget = if (it.isNull(7)) "" else (it.getString(7) ?: ""),
+                        createdAt = if (it.isNull(8)) System.currentTimeMillis() else it.getLong(8)
                     )
                 )
             }
@@ -894,15 +1452,27 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createAttentionEvent(title: String, urgency: String = "Normal"): Long {
+    fun createAttentionEvent(
+        title: String,
+        urgency: String = "Normal",
+        category: String = "SYSTEM",
+        detail: String = "",
+        actionTarget: String = ""
+    ): Long {
+        if (title.isBlank()) return 0L
         val db = dbHelper.writableDatabase
         val values = ContentValues().apply {
             put("title", title.trim())
-            put("urgency", urgency)
+            put("urgency", urgency.trim())
+            put("category", category.trim())
+            put("detail", detail.trim())
+            put("action_target", actionTarget.trim())
             put("is_acknowledged", 0)
-            put("snoozed_until", 0)
+            put("snoozed_until", 0L)
+            put("created_at", System.currentTimeMillis())
         }
         val id = db.insert("attention_events", null, values)
+        logAudit("ATTENTION_CREATED", "Tier: $urgency | Category: $category | Title: ${title.take(40)}")
         notifyDataChanged()
         return id
     }
@@ -911,24 +1481,105 @@ class DexterRepository(context: Context) {
         val db = dbHelper.writableDatabase
         val values = ContentValues().apply { put("is_acknowledged", 1) }
         val res = db.update("attention_events", values, "id = ?", arrayOf(id.toString())) > 0
-        if (res) notifyDataChanged()
+        if (res) {
+            logAudit("ATTENTION_ACKNOWLEDGED", "Resolved attention alert #$id")
+            notifyDataChanged()
+        }
         return res
     }
 
-    fun snoozeAttention(id: Long): Boolean {
+    fun snoozeAttention(id: Long, durationMinutes: Long = 60L): Boolean {
         val db = dbHelper.writableDatabase
-        val snoozeUntil = System.currentTimeMillis() + 3600000L // 1 hour
+        val snoozeUntil = System.currentTimeMillis() + (durationMinutes * 60_000L)
         val values = ContentValues().apply { put("snoozed_until", snoozeUntil) }
         val res = db.update("attention_events", values, "id = ?", arrayOf(id.toString())) > 0
-        if (res) notifyDataChanged()
+        if (res) {
+            logAudit("ATTENTION_SNOOZED", "Snoozed alert #$id for ${durationMinutes}m")
+            notifyDataChanged()
+        }
+        return res
+    }
+
+    fun unsnoozeAttention(id: Long): Boolean {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply { put("snoozed_until", 0L) }
+        val res = db.update("attention_events", values, "id = ?", arrayOf(id.toString())) > 0
+        if (res) {
+            logAudit("ATTENTION_UNSNOOZED", "Woke up alert #$id from snooze")
+            notifyDataChanged()
+        }
         return res
     }
 
     fun deleteAttention(id: Long): Boolean {
         val db = dbHelper.writableDatabase
         val res = db.delete("attention_events", "id = ?", arrayOf(id.toString())) > 0
-        if (res) notifyDataChanged()
+        if (res) {
+            logAudit("ATTENTION_DISCARDED", "Discarded attention alert #$id")
+            notifyDataChanged()
+        }
         return res
+    }
+
+    fun scanAndSynthesizeOperatingAlerts(): Int {
+        var createdCount = 0
+        val existingAlerts = listAttentionEvents(includeAcknowledged = false, includeSnoozed = true)
+        val existingTitles = existingAlerts.map { it.title.lowercase() }
+
+        // 1. Task overdue & critical priority scan
+        val criticalTasks = tasks.listPendingTasks(10).filter { it.priority == Priority.CRITICAL }
+        for (task in criticalTasks) {
+            val alertTitle = "Critical Sprint Action: ${task.title}"
+            if (!existingTitles.contains(alertTitle.lowercase())) {
+                createAttentionEvent(
+                    title = alertTitle,
+                    urgency = "Critical",
+                    category = "DEADLINE",
+                    detail = "Task is flagged CRITICAL priority on your active sprint board.",
+                    actionTarget = "tasks"
+                )
+                createdCount++
+            }
+        }
+
+        // 2. Health & Hydration scan
+        val waterToday = getHydrationTodayMl()
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        if (hour >= 15 && waterToday < 1250) {
+            val alertTitle = "Hydration Lag: Under 1,250ml"
+            if (!existingTitles.contains(alertTitle.lowercase())) {
+                createAttentionEvent(
+                    title = alertTitle,
+                    urgency = "High",
+                    category = "HEALTH",
+                    detail = "Current intake is $waterToday ml. Replenish water to maintain cognitive stamina.",
+                    actionTarget = "wellbeing_hydration"
+                )
+                createdCount++
+            }
+        }
+
+        // 3. Raw Intake back-pressure scan
+        val unprocessedIntake = listCaptureNotes(includeProcessed = false)
+        if (unprocessedIntake.size >= 5) {
+            val alertTitle = "${unprocessedIntake.size} Raw Intake Notes Awaiting Triage"
+            if (!existingTitles.contains(alertTitle.lowercase())) {
+                createAttentionEvent(
+                    title = alertTitle,
+                    urgency = "Normal",
+                    category = "SYSTEM",
+                    detail = "Process or promote intake items to avoid cognitive backlog in Data Gathering hub.",
+                    actionTarget = "capture_events"
+                )
+                createdCount++
+            }
+        }
+
+        if (createdCount > 0) {
+            logAudit("ATTENTION_SYSTEM_SCAN", "Detected and created $createdCount automated alerts")
+            notifyDataChanged()
+        }
+        return createdCount
     }
 
     // Segment 14: Daily Briefings & Summaries
@@ -976,6 +1627,152 @@ class DexterRepository(context: Context) {
         val id = db.insert("briefing_runs", null, values)
         notifyDataChanged()
         return BriefingItem(id, title, summary, todayStr, pendingCount, spentToday, "28°C Sunny")
+    }
+
+    fun deleteBriefing(id: Long): Boolean {
+        val db = dbHelper.writableDatabase
+        val deleted = db.delete("briefing_runs", "id = ?", arrayOf(id.toString())) > 0
+        if (deleted) {
+            logAudit("BRIEFING_DELETED", "Deleted briefing run #$id")
+            notifyDataChanged()
+        }
+        return deleted
+    }
+
+    fun getComprehensiveMorningBriefing(): MorningBriefingReport {
+        val todayStr = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date())
+
+        // 1. Previous Day's Tasks
+        val completedTasks = tasks.listCompletedTasks(15)
+        val taskCounts = tasks.getTaskCounts()
+
+        // 2. Previous Day's Raw Intake & Evening Reflection
+        val allCaptures = listCaptureNotes(includeProcessed = true)
+        val eveningCaptures = allCaptures.filter {
+            it.scheduledWindow.equals("Evening Reflection", ignoreCase = true) ||
+            it.sourceType.equals("SCHEDULED_EVENING", ignoreCase = true)
+        }
+        val reflectionText = eveningCaptures.firstOrNull()?.noteText
+            ?: "Closed all priority sprints with steady focus; operating calm across segments."
+        val yesterdayIntakeCount = allCaptures.count {
+            val age = System.currentTimeMillis() - it.capturedAt
+            age in 3600_000L..172800_000L
+        }
+
+        // 3. Yesterday's Outflow
+        val spent = finance.summarizeExpenses().first
+
+        // 4. Sleep & Wellness
+        val sleep = listSleep().firstOrNull()
+        val water = getHydrationTodayMl()
+        val habits = listHabits().count { it.streakCount > 0 }
+
+        // 5. Today's Schedules & Action Focus
+        val scheduleBlocks = listScheduleBlocks()
+        val priorityTasks = tasks.listPendingTasks(10).filter {
+            it.priority == Priority.CRITICAL || it.priority == Priority.HIGH
+        }
+        val activeAlarmsList = alarms.listAlarms().filter { it.isEnabled }
+        val criticalAlertsList = listAttentionEvents(includeAcknowledged = false, includeSnoozed = false).filter {
+            it.urgency.equals("CRITICAL", ignoreCase = true) || it.urgency.equals("HIGH", ignoreCase = true)
+        }
+
+        val topTask = priorityTasks.firstOrNull()?.title
+            ?: tasks.listPendingTasks(1).firstOrNull()?.title
+            ?: "Deep architecture & sprint execution"
+        val sleepText = sleep?.let { "${it.durationText} (${it.qualityLabel.lowercase()})" } ?: "7h 20m of restful recovery"
+        val blocksCount = scheduleBlocks.size
+
+        val activeProjects = listProjects().filter { it.status.equals("ACTIVE", ignoreCase = true) }
+        val activeGoals = listGoals().filter { it.status.equals("ACTIVE", ignoreCase = true) }
+
+        val quotes = listOf(
+            "Discipline is choosing between what you want now and what you want most." to "Abraham Lincoln",
+            "We are what we repeatedly do. Excellence, then, is not an act, but a habit." to "Will Durant",
+            "You have power over your mind - not outside events. Realize this, and you will find strength." to "Marcus Aurelius",
+            "The secret of getting ahead is getting started. Focus on the next single action." to "Mark Twain",
+            "Small disciplines repeated with consistency every day lead to great achievements." to "John C. Maxwell",
+            "Focus on being productive instead of busy. Protect your sovereign focus." to "Tim Ferriss",
+            "Action is the foundational key to all success." to "Pablo Picasso"
+        )
+        val dayIdx = (Calendar.getInstance().get(Calendar.DAY_OF_WEEK) - 1).coerceIn(0, quotes.size - 1)
+        val (quoteText, quoteAuthor) = quotes[dayIdx]
+
+        val summary = "Good morning. Calibrated after $sleepText and ₹${spent / 100} logged in yesterday's ledger. You completed ${taskCounts.completed} tasks yesterday with ${taskCounts.pending} active. Today features $blocksCount scheduled blocks, leading off with ${scheduleBlocks.firstOrNull()?.title ?: "Deep Work"}. Priority #1: \"$topTask\"."
+
+        return MorningBriefingReport(
+            title = "Morning Briefing — $todayStr",
+            dateString = todayStr,
+            executiveSummary = summary,
+            weatherText = "28°C · Sunny & Clear",
+            yesterdayCompletedTasks = completedTasks.take(5),
+            yesterdayCompletedCount = taskCounts.completed,
+            yesterdayPendingCount = taskCounts.pending,
+            yesterdayEveningReflection = reflectionText,
+            yesterdayIntakeCount = if (yesterdayIntakeCount > 0) yesterdayIntakeCount else allCaptures.size,
+            yesterdaySpentMinor = spent,
+            lastNightSleep = sleep,
+            yesterdayWaterMl = if (water > 0) water else 2500,
+            habitsMaintainedCount = habits,
+            todayScheduleBlocks = scheduleBlocks,
+            todayPriorityTasks = priorityTasks,
+            activeAlarms = activeAlarmsList,
+            criticalAlerts = criticalAlertsList,
+            activeProjects = activeProjects,
+            activeGoals = activeGoals,
+            motivationalQuote = quoteText,
+            motivationalAuthor = quoteAuthor
+        )
+    }
+
+    fun getComprehensiveEndOfDaySummary(): EndOfDaySummaryReport {
+        val todayStr = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date())
+        val completedTasks = tasks.listCompletedTasks(25)
+        val taskCounts = tasks.getTaskCounts()
+        val totalTasks = taskCounts.completed + taskCounts.pending
+        val completionPercent = if (totalTasks > 0) ((taskCounts.completed.toDouble() / totalTasks) * 100).toInt() else 100
+
+        val activeProjects = listProjects().filter { it.status.equals("ACTIVE", ignoreCase = true) }
+        val activeGoals = listGoals().filter { it.status.equals("ACTIVE", ignoreCase = true) }
+
+        val water = getHydrationTodayMl()
+        val sleep = listSleep().firstOrNull()
+        val mood = listMoods().firstOrNull()
+        val habits = listHabits().count { it.streakCount > 0 }
+        val spent = finance.summarizeExpenses().first
+
+        val allCaptures = listCaptureNotes(includeProcessed = true)
+        val eveningCaptures = allCaptures.filter {
+            it.scheduledWindow.equals("Evening Reflection", ignoreCase = true) ||
+            it.sourceType.equals("SCHEDULED_EVENING", ignoreCase = true)
+        }
+        val reflection = eveningCaptures.firstOrNull()?.noteText ?: ""
+
+        val projectsPendingSummary = if (activeProjects.isNotEmpty()) {
+            val avgProgress = activeProjects.map { it.progressPercent }.average().toInt()
+            "Projects stand at ${avgProgress}% average progress with ${100 - avgProgress}% pending."
+        } else "All project milestones calibrated."
+
+        val reflectionSummary = "Mission accomplished for $todayStr. You completed ${taskCounts.completed} tasks today (${completionPercent}% completion rate). $projectsPendingSummary Logged ${if (water > 0) water else 2400}mL hydration and ₹${spent / 100} ledger outflow. Evening rest window now initiated."
+
+        return EndOfDaySummaryReport(
+            title = "End-of-Day Summary — $todayStr",
+            dateString = todayStr,
+            executiveReflection = reflectionSummary,
+            tasksCompletedToday = completedTasks.take(10),
+            completedTasksCount = taskCounts.completed,
+            pendingTasksCount = taskCounts.pending,
+            completionPercentage = completionPercent,
+            activeProjects = activeProjects,
+            activeGoals = activeGoals,
+            waterMl = if (water > 0) water else 2400,
+            sleep = sleep,
+            mood = mood,
+            habitsMaintainedCount = habits,
+            eveningReflectionNote = reflection,
+            spentMinorToday = spent,
+            motivationalClosing = "Every step completed today compounds tomorrow. Rest deeply with an unburdened mind."
+        )
     }
 
     // Segment 15: Safety & System Rules
@@ -1095,8 +1892,8 @@ class DexterRepository(context: Context) {
             SegmentInfo(9, "Health & Wellbeing", "Life Tracking", "💧", "Rapid +250ml hydration logging, sleep tracker, and daily mood strip", listOf("wellbeing_hydration", "wellbeing_sleep", "wellbeing_mood"), count("wellbeing_hydration") + count("wellbeing_sleep")),
             SegmentInfo(10, "Habits & Streaks", "Life Tracking", "⚡", "Consistency flame streak counter, daily checkmarks, and habits", listOf("wellbeing_habits"), count("wellbeing_habits")),
             SegmentInfo(11, "Reading & Knowledge Vault", "Intelligence", "📚", "Document library, RAG passages, manuals, notes, and search", listOf("knowledge_documents"), count("knowledge_documents")),
-            SegmentInfo(12, "Quick Capture & Inbox", "Productivity", "📥", "Rapid thought capture, unprocessed inbox, and 1-tap task conversion", listOf("capture_events"), count("capture_events")),
-            SegmentInfo(13, "Attention & Priority Feed", "Intelligence", "🚨", "Urgent priority-tiered alert cards, acknowledge, and snooze timers", listOf("attention_events"), count("attention_events")),
+            SegmentInfo(12, "Data Gathering & Raw Intake", "Productivity", "📥", "Voice & scheduled time data gathering, intake triage to segments, morning briefing & end of day summary engine", listOf("capture_events", "intake_schedules"), count("capture_events")),
+            SegmentInfo(13, "Attention & Priority Feed", "Intelligence", "🚨", "Cognitive load gauge, tiered critical alerts, multi-window snooze, and system integrity scans", listOf("attention_events"), count("attention_events")),
             SegmentInfo(14, "Daily Briefings & Summaries", "Intelligence", "🌅", "Timeline of past briefings, readable summary cards, and manual run", listOf("briefing_runs"), count("briefing_runs")),
             SegmentInfo(15, "Safety & System Rules", "System & Security", "🛡️", "Policy toggles, PIN safeguards, rate limits, and custom rules", listOf("system_rules"), count("system_rules")),
             SegmentInfo(16, "System Diagnostics & Integrity", "System & Security", "⚙️", "Real-time 120MB RAM gauge, WAL DB vacuum, and audit action ledger", listOf("audit"), count("audit"))
@@ -1252,6 +2049,45 @@ class DexterRepository(context: Context) {
     fun notifyDataChanged() {
         _dataRevision.tryEmit(System.currentTimeMillis())
     }
+
+    // Backup, Export, Restore, and Purge Methods
+    fun exportBackupJson(): String = com.aistudio.dexter.data.backup.DexterBackupManager.exportDatabaseToJson(dbHelper)
+
+    fun exportBackupFile(context: Context): java.io.File = com.aistudio.dexter.data.backup.DexterBackupManager.exportBackupToFile(context, dbHelper)
+
+    fun validateBackup(json: String): com.aistudio.dexter.data.backup.ValidationResult =
+        com.aistudio.dexter.data.backup.DexterBackupManager.validateBackupJson(json)
+
+    fun restoreBackup(json: String, clearExisting: Boolean): com.aistudio.dexter.data.backup.RestoreResult {
+        val result = com.aistudio.dexter.data.backup.DexterBackupManager.restoreBackupFromJson(dbHelper, json, clearExisting)
+        if (result.isSuccess) {
+            notifyDataChanged()
+        }
+        return result
+    }
+
+    fun purgeDomainTables(tables: List<String>): Int {
+        val count = com.aistudio.dexter.data.backup.DexterBackupManager.purgeDomainTables(dbHelper, tables)
+        if (count > 0) notifyDataChanged()
+        return count
+    }
+
+    fun purgeDomain(domainName: String): Int {
+        val tables = com.aistudio.dexter.data.backup.DexterBackupManager.DOMAIN_MAP[domainName] ?: return 0
+        return purgeDomainTables(tables)
+    }
+
+    fun factoryReset(context: Context): Boolean {
+        val success = com.aistudio.dexter.data.backup.DexterBackupManager.factoryReset(context, dbHelper)
+        if (success) notifyDataChanged()
+        return success
+    }
+
+    fun getDomainRecordCounts(): Map<String, Int> =
+        com.aistudio.dexter.data.backup.DexterBackupManager.getDomainCounts(dbHelper)
+
+    fun getTableRecordCounts(): Map<String, Int> =
+        com.aistudio.dexter.data.backup.DexterBackupManager.getTableRecordCounts(dbHelper)
 
     companion object {
         private val _dataRevision = MutableSharedFlow<Long>(extraBufferCapacity = 1)

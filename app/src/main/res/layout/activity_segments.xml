@@ -64,36 +64,27 @@
             android:textColor="@color/dexter_on_surface"
             android:textSize="11sp"
             android:textStyle="bold" />
+
+        <FrameLayout
+            android:id="@+id/btnProfileAvatar"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_surface_rounded"
+            android:clickable="true"
+            android:contentDescription="Profile and Preferences"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/tvProfileAvatar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="🤖"
+                android:textSize="16sp" />
+        </FrameLayout>
     </LinearLayout>
 
-    <!-- Explanatory Banner -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginLeft="16dp"
-        android:layout_marginRight="16dp"
-        android:layout_marginBottom="12dp"
-        android:background="@drawable/bg_surface_rounded"
-        android:orientation="vertical"
-        android:padding="12dp">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="📱 Why 16 Segments Are Not on the Bottom Bar"
-            android:textColor="@color/dexter_on_background"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:lineSpacingExtra="2dp"
-            android:text="A standard bottom bar can only fit 4–5 buttons before overlapping. Dexter provides this dedicated hub and a dedicated page for every segment so you can inspect all live rows, schemas, and counts."
-            android:textColor="@color/dexter_on_surface_variant"
-            android:textSize="12sp" />
-    </LinearLayout>
 
     <!-- Filter Chips Horizontal Scroll -->
     <HorizontalScrollView

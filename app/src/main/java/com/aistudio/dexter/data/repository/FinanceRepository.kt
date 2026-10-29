@@ -167,4 +167,12 @@ class FinanceRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelpe
         }
         return map
     }
+
+    fun getTodayExpenseTotal(): Double {
+        return summarizeExpenses().first / 100.0
+    }
+
+    fun getRecentTransactions(limit: Int = 10): List<FinanceTransaction> {
+        return listTransactions(limit)
+    }
 }

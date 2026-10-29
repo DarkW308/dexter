@@ -148,4 +148,104 @@ class DexterIntentRouterTest {
         assertEquals("CREATE_ALARM", reminderActionFirst.intent)
         assertEquals("Call doctor", reminderActionFirst.parameters["label"])
     }
+
+    @Test
+    fun testWakeWordStripping_alexaAndDexter() {
+        val q1 = DexterIntentRouter.parse("Alexa, what are all the pending tasks today")
+        assertEquals("LIST_PENDING_TASKS", q1.intent)
+
+        val q2 = DexterIntentRouter.parse("Hey Dexter, what is my schedule today")
+        assertEquals("DAILY_BRIEFING", q2.intent)
+
+        val q3 = DexterIntentRouter.parse("Alexa create project Website with deadline 2026-12-31")
+        assertEquals("CREATE_PROJECT", q3.intent)
+        assertEquals("Website", q3.parameters["title"])
+        assertEquals("2026-12-31", q3.parameters["deadline"])
+    }
+
+    @Test
+    fun testProjectAndMilestonesVoiceCommands() {
+        val createMilestone = DexterIntentRouter.parse("add milestone UI Design to project Website")
+        assertEquals("CREATE_MILESTONE", createMilestone.intent)
+        assertEquals("Website", createMilestone.parameters["project_name"])
+        assertEquals("UI Design", createMilestone.parameters["title"])
+
+        val completeMilestone = DexterIntentRouter.parse("mark milestone UI Design done in project Website")
+        assertEquals("COMPLETE_MILESTONE", completeMilestone.intent)
+        assertEquals("Website", completeMilestone.parameters["project_name"])
+        assertEquals("UI Design", completeMilestone.parameters["milestone_name"])
+
+        val updateDeadline = DexterIntentRouter.parse("update deadline of project Website to 2026-11-30")
+        assertEquals("UPDATE_PROJECT_DEADLINE", updateDeadline.intent)
+        assertEquals("Website", updateDeadline.parameters["project_name"])
+        assertEquals("2026-11-30", updateDeadline.parameters["deadline"])
+
+        val getStatus = DexterIntentRouter.parse("what is the status of project Website")
+        assertEquals("GET_PROJECT_STATUS", getStatus.intent)
+        assertEquals("Website", getStatus.parameters["project_name"])
+    }
+
+    @Test
+    fun testAlarmWakeUpConversationFlow() {
+        val awake1 = DexterIntentRouter.parse("I'm awake")
+        assertEquals("ALARM_I_AM_AWAKE", awake1.intent)
+
+        val awake2 = DexterIntentRouter.parse("Alexa, I am awake now")
+        assertEquals("ALARM_I_AM_AWAKE", awake2.intent)
+
+        val awake3 = DexterIntentRouter.parse("Good morning")
+        assertEquals("ALARM_I_AM_AWAKE", awake3.intent)
+
+        val snooze1 = DexterIntentRouter.parse("Snooze")
+        assertEquals("ALARM_SNOOZE", snooze1.intent)
+        assertEquals(5, snooze1.parameters["minutes"])
+
+        val snooze2 = DexterIntentRouter.parse("Alexa, give me 5 more minutes")
+        assertEquals("ALARM_SNOOZE", snooze2.intent)
+
+        val snooze3 = DexterIntentRouter.parse("Snooze 10 minutes")
+        assertEquals("ALARM_SNOOZE", snooze3.intent)
+        assertEquals(10, snooze3.parameters["minutes"])
+
+        val dismiss1 = DexterIntentRouter.parse("Turn off alarm")
+        assertEquals("ALARM_DISMISS", dismiss1.intent)
+
+        val dismiss2 = DexterIntentRouter.parse("Alexa stop alarm")
+        assertEquals("ALARM_DISMISS", dismiss2.intent)
+    }
+
+    @Test
+    fun testGoalVoiceCommands_multiDomainSupport() {
+        val eduGoal = DexterIntentRouter.parse("set an education goal to read 12 books by Dec 31")
+        assertEquals("CREATE_GOAL", eduGoal.intent)
+        assertEquals("Education & Learning", eduGoal.parameters["category"])
+        assertEquals(12.0, eduGoal.parameters["target_amount"] as Double, 0.001)
+        assertEquals("books", eduGoal.parameters["metric_unit"])
+        assertEquals("Dec 31", eduGoal.parameters["target_date"])
+        assertTrue(eduGoal.parameters["title"].toString().contains("read 12 books", ignoreCase = true))
+
+        val healthGoal = DexterIntentRouter.parse("create a health goal to run 50 km by Dec 31 2026")
+        assertEquals("CREATE_GOAL", healthGoal.intent)
+        assertEquals("Health & Fitness", healthGoal.parameters["category"])
+        assertEquals(50.0, healthGoal.parameters["target_amount"] as Double, 0.001)
+        assertEquals("km", healthGoal.parameters["metric_unit"])
+        assertEquals("Dec 31 2026", healthGoal.parameters["target_date"])
+
+        val workGoal = DexterIntentRouter.parse("set a work goal to finish 5 projects")
+        assertEquals("CREATE_GOAL", workGoal.intent)
+        assertEquals("Work & Career", workGoal.parameters["category"])
+        assertEquals(5.0, workGoal.parameters["target_amount"] as Double, 0.001)
+        assertEquals("projects", workGoal.parameters["metric_unit"])
+
+        val financeGoal = DexterIntentRouter.parse("set a goal to save 50000 rupees by Dec 2026")
+        assertEquals("CREATE_GOAL", financeGoal.intent)
+        assertEquals("Financial", financeGoal.parameters["category"])
+        assertEquals(50000.0, financeGoal.parameters["target_amount"] as Double, 0.001)
+        assertEquals("₹", financeGoal.parameters["metric_unit"])
+
+        val personalGoal = DexterIntentRouter.parse("my goal is to meditate for 30 days")
+        assertEquals("CREATE_GOAL", personalGoal.intent)
+        assertEquals(30.0, personalGoal.parameters["target_amount"] as Double, 0.001)
+        assertEquals("days", personalGoal.parameters["metric_unit"])
+    }
 }

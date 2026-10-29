@@ -1,8 +1,11 @@
 package com.aistudio.dexter.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -10,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -28,7 +32,9 @@ fun MoreScreen(
     projects: List<ProjectItem>,
     alarms: List<AlarmItem>,
     auditLogs: List<AuditLog>,
-    onCancelAlarms: () -> Unit
+    avatarEmoji: String = "🤖",
+    onCancelAlarms: () -> Unit,
+    onOpenProfile: () -> Unit = {}
 ) {
     var selectedSection by remember { mutableStateOf("Overview") }
 
@@ -37,12 +43,38 @@ fun MoreScreen(
             .fillMaxSize()
             .padding(horizontal = 20.dp, vertical = 12.dp)
     ) {
+        // Top Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Intelligence Hub",
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                color = DexterOnBackground
+            )
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(DexterSurfaceVariant)
+                    .clickable { onOpenProfile() }
+                    .testTag("btn_more_profile_avatar"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(avatarEmoji, fontSize = 18.sp)
+            }
+        }
         // Section Filter Chips
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            listOf("Overview", "Goals", "Alarms", "Audit Logs").forEach { section ->
+            listOf("Overview", "Projects", "Goals", "Alarms", "Audit Logs").forEach { section ->
                 FilterChip(
                     selected = selectedSection == section,
                     onClick = { selectedSection = section },
@@ -67,6 +99,39 @@ fun MoreScreen(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = DexterSurface)
+                        ) {
+                            Column(modifier = Modifier.padding(18.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("📁", fontSize = 20.sp)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text("Active Projects (${projects.size})", color = DexterOnBackground, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                if (projects.isEmpty()) {
+                                    Text("No projects yet. Say \"Plan project Mobile App V2\" to auto-create milestones.", color = DexterOnSurfaceVariant, fontSize = 13.sp)
+                                } else {
+                                    projects.take(3).forEach { project ->
+                                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(project.name, color = DexterOnSurface, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                                Text("${project.progressPercent}%", color = DexterPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            Text("${project.taskCount} milestones · Deadline: ${if (project.deadline.isNotBlank()) project.deadline else "Flexible"}", color = DexterOnSurfaceVariant, fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -143,6 +208,92 @@ fun MoreScreen(
                                 Text("• Engine: Native Kotlin NLU Fast-Path", color = DexterOnSurface, fontSize = 13.sp)
                                 Text("• Privacy: 100% On-Device & Offline", color = DexterSuccess, fontSize = 13.sp)
                                 Text("• Model Sandbox: Deterministic Action Boundary", color = DexterOnSurface, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            "Projects" -> {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    if (projects.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = DexterSurface)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text("📁", fontSize = 28.sp)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("No Projects Yet", color = DexterOnBackground, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("Create projects with deadlines and milestones in Segment 2 or via voice commands.", color = DexterOnSurfaceVariant, fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    } else {
+                        items(projects) { project ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = DexterSurface)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(project.name, color = DexterOnBackground, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                            if (project.description.isNotBlank()) {
+                                                Text(project.description, color = DexterOnSurfaceVariant, fontSize = 12.sp, maxLines = 1)
+                                            }
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = DexterPrimary.copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                text = project.status,
+                                                color = DexterPrimary,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("${project.taskCount} milestones", color = DexterOnSurfaceVariant, fontSize = 12.sp)
+                                        Text("${project.progressPercent}%", color = DexterPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    LinearProgressIndicator(
+                                        progress = { (project.progressPercent / 100f).coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                                        color = DexterPrimary,
+                                        trackColor = DexterSurfaceVariant
+                                    )
+                                    if (project.deadline.isNotBlank()) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.DateRange, contentDescription = null, tint = DexterPrimary, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Deadline: ${project.deadline}", color = DexterOnSurfaceVariant, fontSize = 12.sp)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
