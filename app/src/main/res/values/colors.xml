@@ -1,37 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Core Dexter Dark Theme Colors -->
-    <color name="dexter_background">#1A1A2E</color>
-    <color name="dexter_surface">#252540</color>
-    <color name="dexter_surface_variant">#2E2E50</color>
-    <color name="dexter_surface_card">#202038</color>
+    <!-- Apple HIG Deep Graphite & OLED Dark Palette -->
+    <color name="dexter_background">#08090B</color>
+    <color name="dexter_surface">#15171E</color>
+    <color name="dexter_surface_variant">#1C202B</color>
+    <color name="dexter_surface_card">#15171E</color>
 
-    <!-- Accent & Glow Colors -->
-    <color name="dexter_primary">#4FC3F7</color>
-    <color name="dexter_primary_glow">#00E5FF</color>
-    <color name="dexter_on_primary">#000000</color>
+    <!-- Apple Accent & Glow Colors -->
+    <color name="dexter_primary">#0A84FF</color>
+    <color name="dexter_primary_glow">#64D2FF</color>
+    <color name="dexter_on_primary">#FFFFFF</color>
 
     <!-- Text & Content Colors -->
     <color name="dexter_on_background">#FFFFFF</color>
-    <color name="dexter_on_surface">#E0E0E0</color>
-    <color name="dexter_on_surface_variant">#9E9E9E</color>
+    <color name="dexter_on_surface">#F2F2F7</color>
+    <color name="dexter_on_surface_variant">#8E8E93</color>
 
-    <!-- Feedback & Priority Colors -->
-    <color name="dexter_error">#CF6679</color>
-    <color name="dexter_warning">#FFAB40</color>
-    <color name="dexter_success">#69F0AE</color>
+    <!-- Feedback & Priority Colors (Apple System Palette) -->
+    <color name="dexter_error">#FF453A</color>
+    <color name="dexter_warning">#FF9F0A</color>
+    <color name="dexter_success">#30D158</color>
 
-    <color name="dexter_priority_critical">#FF1744</color>
-    <color name="dexter_priority_high">#FF6D00</color>
-    <color name="dexter_priority_normal">#4FC3F7</color>
-    <color name="dexter_priority_low">#546E7A</color>
+    <color name="dexter_priority_critical">#FF453A</color>
+    <color name="dexter_priority_high">#FF9F0A</color>
+    <color name="dexter_priority_normal">#0A84FF</color>
+    <color name="dexter_priority_low">#8E8E93</color>
 
     <!-- Service Status Dot Colors -->
-    <color name="status_live">#69F0AE</color>
-    <color name="status_degraded">#FFAB40</color>
-    <color name="status_offline">#CF6679</color>
+    <color name="status_live">#30D158</color>
+    <color name="status_degraded">#FF9F0A</color>
+    <color name="status_offline">#FF453A</color>
 
-    <!-- Transparent Overlays -->
-    <color name="dexter_modal_scrim">#E61A1A2E</color>
-    <color name="dexter_card_stroke">#334FC3F7</color>
+    <!-- Transparent Overlays & Hairline Strokes -->
+    <color name="dexter_modal_scrim">#E608090B</color>
+    <color name="dexter_card_stroke">#262A36</color>
 </resources>

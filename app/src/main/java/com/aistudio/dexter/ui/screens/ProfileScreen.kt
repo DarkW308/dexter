@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -216,7 +217,7 @@ fun ProfileScreen(
                                     Text("${currentLang.englishName} (${currentLang.nativeName})", color = DexterOnSurfaceVariant, fontSize = 12.sp)
                                 }
                             }
-                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Select", tint = DexterOnSurfaceVariant)
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Select", tint = DexterOnSurfaceVariant)
                         }
 
                         HorizontalDivider(color = DexterSurfaceVariant.copy(alpha = 0.5f))
@@ -240,7 +241,7 @@ fun ProfileScreen(
                                     Text("${currentCurr.symbol} · ${currentCurr.name}", color = DexterOnSurfaceVariant, fontSize = 12.sp)
                                 }
                             }
-                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Select", tint = DexterOnSurfaceVariant)
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Select", tint = DexterOnSurfaceVariant)
                         }
 
                         HorizontalDivider(color = DexterSurfaceVariant.copy(alpha = 0.5f))
@@ -296,7 +297,7 @@ fun ProfileScreen(
                                     fontSize = 12.sp
                                 )
                             }
-                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Select", tint = DexterOnSurfaceVariant)
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Select", tint = DexterOnSurfaceVariant)
                         }
 
                         HorizontalDivider(color = DexterSurfaceVariant.copy(alpha = 0.5f))
@@ -320,7 +321,7 @@ fun ProfileScreen(
                                     Text("Test accents, Chinese, Russian, Hindi & Laya slots", color = DexterOnSurfaceVariant, fontSize = 12.sp)
                                 }
                             }
-                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Open Lab", tint = DexterPrimaryGlow)
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Open Lab", tint = DexterPrimaryGlow)
                         }
                     }
                 }
@@ -436,7 +437,7 @@ fun ProfileScreen(
                                 Text("Selective Domain Purge", color = DexterOnBackground, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                                 Text("Selectively wipe individual segments (e.g., clear only expenses, tasks, or diary)", color = DexterOnSurfaceVariant, fontSize = 12.sp)
                             }
-                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Purge", tint = DexterOnSurfaceVariant)
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Purge", tint = DexterOnSurfaceVariant)
                         }
 
                         HorizontalDivider(color = DexterSurfaceVariant.copy(alpha = 0.5f))

@@ -30,6 +30,7 @@ recordings/
 build/
 app/build/
 *.apk
+!dexter.apk
 *.aab
 local.properties
 .idea/

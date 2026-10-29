@@ -1,6 +1,7 @@
 package com.aistudio.dexter.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -24,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aistudio.dexter.engine.VoicePipelineTrace
+import com.aistudio.dexter.ui.components.*
 import com.aistudio.dexter.ui.theme.*
 
 data class LabPreset(
@@ -153,17 +155,10 @@ fun VoiceLabScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 categories.forEach { cat ->
-                    FilterChip(
-                        selected = selectedCategory == cat,
-                        onClick = { selectedCategory = cat },
-                        label = { Text(cat, fontSize = 12.sp) },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = DexterPrimary,
-                            selectedLabelColor = DexterOnPrimary,
-                            containerColor = DexterSurface,
-                            labelColor = DexterOnSurface
-                        )
+                    AppleSegmentedPill(
+                        label = cat,
+                        isSelected = selectedCategory == cat,
+                        onClick = { selectedCategory = cat }
                     )
                 }
             }
@@ -173,27 +168,26 @@ fun VoiceLabScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 filteredPresets.forEach { preset ->
-                    SuggestionChip(
-                        onClick = {
-                            inputText = preset.phrase
-                            onExecuteQuery(preset.phrase)
-                        },
-                        label = {
-                            Column(modifier = Modifier.padding(vertical = 2.dp)) {
-                                Text(preset.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DexterOnBackground)
-                                Text("\"${preset.phrase}\"", fontSize = 11.sp, color = DexterPrimaryGlow)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(AppleElevatedSurface)
+                            .border(0.75.dp, AppleHairline, RoundedCornerShape(16.dp))
+                            .clickable {
+                                inputText = preset.phrase
+                                onExecuteQuery(preset.phrase)
                             }
-                        },
-                        shape = RoundedCornerShape(14.dp),
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = DexterSurfaceVariant
-                        ),
-                        border = null
-                    )
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(preset.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppleLabelPrimary)
+                            Text("\"${preset.phrase}\"", fontSize = 11.sp, color = AppleAccentCyan)
+                        }
+                    }
                 }
             }
 
@@ -209,14 +203,15 @@ fun VoiceLabScreen(
                 // Visual Pipeline Card
                 if (currentTrace != null) {
                     item {
-                        Card(
+                        AppleInsetCard(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("card_pipeline_trace"),
-                            shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = DexterSurface)
+                            cornerRadius = 22.dp,
+                            backgroundColor = AppleCardBackground,
+                            borderColor = AppleHairline
                         ) {
-                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
