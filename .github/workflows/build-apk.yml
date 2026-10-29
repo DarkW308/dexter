@@ -21,41 +21,47 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
 
-      - name: Install Android Platform 35 & Accept Licenses
+      - name: Install Android SDK Platform 35 and Build Tools
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-35" "build-tools;34.0.0"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.11.1'
+        uses: gradle/actions/setup-gradle@v4
 
-      - name: Ensure Keystore Exists
+      - name: Ensure Debug Keystore
         run: |
-          if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
+          if [ -f debug.keystore ]; then
+            echo "debug.keystore already exists; preserving existing keystore."
+          elif [ -f debug.keystore.base64 ]; then
+            echo "Restoring debug.keystore from debug.keystore.base64."
             base64 -d debug.keystore.base64 > debug.keystore
-          elif [ ! -f debug.keystore ]; then
-            keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          else
+            echo "debug.keystore not found; standard Gradle debug keystore will be used."
           fi
 
       - name: Grant execute permission for gradlew
-        run: chmod +x gradlew || true
+        run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: |
-          if [ -f ./gradlew ]; then
-            ./gradlew assembleDebug --stacktrace --no-daemon
-          else
-            gradle assembleDebug --stacktrace --no-daemon
-          fi
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK as Artifact
+      - name: Verify Debug APK Exists
+        run: |
+          if [ ! -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            echo "::error::Debug APK not found at app/build/outputs/apk/debug/app-debug.apk"
+            exit 1
+          fi
+          echo "Debug APK verified successfully:"
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload Debug APK as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dexter-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
           retention-days: 14
