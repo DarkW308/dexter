@@ -53,11 +53,13 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("debugConfig")
+            val ksFile = file("${rootDir}/debug.keystore")
+            signingConfig = if (ksFile.exists()) signingConfigs.getByName("debugConfig") else signingConfigs.getByName("debug")
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            val ksFile = file("${rootDir}/debug.keystore")
+            signingConfig = if (ksFile.exists()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

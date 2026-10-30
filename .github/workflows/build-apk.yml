@@ -40,7 +40,8 @@ jobs:
             echo "Restoring debug.keystore from debug.keystore.base64."
             base64 -d debug.keystore.base64 > debug.keystore
           else
-            echo "debug.keystore not found; standard Gradle debug keystore will be used."
+            echo "Generating debug.keystore."
+            keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
       - name: Grant execute permission for gradlew
