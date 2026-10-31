@@ -9,6 +9,7 @@ import java.util.Calendar
 
 enum class ProactiveMotive(val label: String, val badge: String) {
     EXECUTIVE_ADVISORY("Executive Advisory", "🎯"),
+    EVENING_DAY_CLOSE("Evening Debrief & Day-Close", "🌙"),
     MOMENTUM_MOTIVATOR("Momentum Motivator", "⚡"),
     FINANCIAL_PACING("Financial Pacing", "📊"),
     WELLBEING_CHECKIN("Wellbeing Check-in", "🛡️"),
@@ -137,6 +138,22 @@ class ProactiveMotiveEngine(
             )
         }
 
+        // 1b. Evening Day-Close & Data Gathering Check (19:00 - 21:59)
+        // Two Conditions: (1) Evening timeframe, (2) User has completed/pending tasks, but has not completed evening debrief/summary
+        if (currentHour in 19..21 && (completedToday > 0 || pendingCount > 0)) {
+            val spoken = "Good evening, sir. The day is coming to a close. You have resolved $completedToday tasks today with $pendingCount still pending. We haven't gathered your evening debrief yet. Shall we wrap up today's summary and set tomorrow's priorities?"
+            return ProactiveVocalization(
+                motive = ProactiveMotive.EVENING_DAY_CLOSE,
+                headline = "Evening Debrief & Day-Close Directive",
+                text = "Day-close alignment: $completedToday tasks resolved, $pendingCount pending. Daily summary and evening data gathering awaiting confirmation.",
+                spokenText = spoken,
+                urgency = ProactiveUrgency.HIGH,
+                triggeredBy = triggeredBy,
+                contextSummary = "Hour: $currentHour:00 | Completed: $completedToday | Pending: $pendingCount",
+                targetSegments = listOf(1, 5)
+            )
+        }
+
         // 2. High Financial Velocity Alert (Today's spend > ₹2,500 or equivalent currency threshold)
         if (todaySpend >= 2500.0) {
             val spoken = "Operational expense note: daily deployment has reached ${todaySpend.toInt()} currency units. Let us keep discretionary burn measured."
@@ -224,6 +241,16 @@ class ProactiveMotiveEngine(
      */
     fun simulateMotive(motive: ProactiveMotive): ProactiveVocalization {
         return when (motive) {
+            ProactiveMotive.EVENING_DAY_CLOSE -> ProactiveVocalization(
+                motive = motive,
+                headline = "Evening Debrief & Day-Close Directive",
+                text = "Day-close alignment: 4 tasks resolved, 2 pending. Daily summary and evening data gathering awaiting confirmation.",
+                spokenText = "Good evening, sir. The day is coming to a close. You have resolved four tasks today with two still pending. Shall we wrap up today's summary?",
+                urgency = ProactiveUrgency.HIGH,
+                triggeredBy = "Simulation: Evening Day-Close",
+                contextSummary = "Hour: 20:00 | Completed: 4 | Pending: 2",
+                targetSegments = listOf(1, 5)
+            )
             ProactiveMotive.EXECUTIVE_ADVISORY -> ProactiveVocalization(
                 motive = motive,
                 headline = "Morning Tactical Briefing",

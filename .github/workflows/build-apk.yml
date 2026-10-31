@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Code
@@ -47,6 +49,17 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Download Offline AI Model Weights (Laya & Needle 3)
+        run: |
+          mkdir -p app/src/main/assets/models app/src/main/assets/needle
+          echo "Downloading Laya ONNX decision model weights from Hugging Face..."
+          curl -L -f --retry 3 "https://huggingface.co/onnx-community/laya-multilingual-ONNX/resolve/main/onnx/model_fp16.onnx" -o app/src/main/assets/models/laya_int8.onnx
+          echo "Downloading Needle 3 .cact model weights from Hugging Face..."
+          curl -L -f --retry 3 "https://huggingface.co/Cactus-Compute/needle3/resolve/main/needle3.cact" -o app/src/main/assets/needle/needle3.cact
+          echo "Bundled model asset inventory:"
+          ls -lh app/src/main/assets/models/
+          ls -lh app/src/main/assets/needle/
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
@@ -66,3 +79,19 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish Direct APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Dexter AI Build ${{ github.run_number }} (Direct APK)
+          body: |
+            ### Dexter Fully Offline On-Device AI Build ${{ github.run_number }}
+            - **Direct Download**: Download `app-debug.apk` directly below (no zip compression).
+            - **100% Offline AI**: Pre-bundled with real Laya and Needle 3 neural weights.
+            - **Complete Privacy**: Zero telemetry, zero cloud dependencies.
+            - **Autonomous Proactive AI**: Evening debrief and smart task completion.
+          files: app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -223,6 +223,18 @@ class LayaEngine private constructor(private val context: Context?) {
     }
 
     private fun runCalibratedSlotFilling(text: String, lower: String): LayaDecisionResult {
+        // 0. Interrogative Query Guard: Questions must NEVER be turned into created tasks
+        val queryIntent = DexterIntentRouter.interrogativeQueryGuard(lower, text)
+        if (queryIntent != null) {
+            return LayaDecisionResult(
+                intent = queryIntent.intent,
+                confidence = 0.95f,
+                slots = queryIntent.parameters,
+                targetSegment = intentToSegment(queryIntent.intent),
+                explanation = "Deterministic read query preserved by Interrogative Guard"
+            )
+        }
+
         // Casual slang financial spending: "chuck 250 into petrol", "paid 80 for auto"
         val casualSpendPattern = Pattern.compile("(?:chuck|put|spent|paid|gave|drop)\\s+(?:rs\\.?|inr|₹)?\\s*(\\d+(?:\\.\\d+)?)\\s*(?:bucks|rupees)?\\s*(?:for|in|into|on|towards)\\s+(.+)", Pattern.CASE_INSENSITIVE)
         val mCasual = casualSpendPattern.matcher(text)
@@ -309,6 +321,16 @@ class LayaEngine private constructor(private val context: Context?) {
         if (lower.contains("urgent") || lower.contains("asap") || lower.contains("critical")) priority = Priority.CRITICAL
         else if (lower.contains("important") || lower.contains("first thing")) priority = Priority.HIGH
         else if (lower.contains("whenever") || lower.contains("later")) priority = Priority.LOW
+
+        if (DexterIntentRouter.isInterrogativeQuery(text) || text.trim().endsWith("?")) {
+            return LayaDecisionResult(
+                intent = "LIST_PENDING_TASKS",
+                confidence = 0.90f,
+                slots = emptyMap(),
+                targetSegment = 1,
+                explanation = "Interrogative task query routed to read operation"
+            )
+        }
 
         val cleanTitle = text.replace(Regex("(?i)\\b(urgent|critical|important|asap)\\b"), "").trim()
         return LayaDecisionResult(

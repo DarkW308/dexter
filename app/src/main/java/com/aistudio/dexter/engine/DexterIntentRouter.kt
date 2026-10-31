@@ -141,27 +141,35 @@ object DexterIntentRouter {
             )
         }
 
-        // 5. Complete Task (By ID or Title)
+        // 5. Complete Task (By ID, Title, or Contextual Active Task)
         val completeIdMatch = Pattern.compile("^(?:complete|finish|mark)\\s+(?:task\\s+)?#?(\\d+)(?:\\s+done|\\s+as\\s+done)?$", Pattern.CASE_INSENSITIVE).matcher(text.trim())
         if (completeIdMatch.find()) {
             val id = completeIdMatch.group(1)?.toLongOrNull() ?: 0L
             return ParsedIntent(
                 intent = "COMPLETE_TASK",
                 parameters = mapOf("taskId" to id),
-                requiresConfirmation = true,
-                confirmationPrompt = "Complete task #$id. Confirm?"
+                requiresConfirmation = false
             )
         }
 
-        val completeTitleMatch = Pattern.compile("^(?:mark|finish|complete)\\s+(?:task\\s+)?['\"]?([^'\"]+?)['\"]?\\s+(?:done|complete|as\\s+done)$", Pattern.CASE_INSENSITIVE).matcher(text.trim())
+        // Active task pronouns: "complete this task", "mark this task complete", "mark task done", "finish this task", "complete this", "complete task"
+        val completeActiveMatch = Pattern.compile("^(?:mark|finish|complete)\\s+(?:this|the|current)?\\s*(?:task)?\\s*(?:as\\s+)?(?:done|complete|completed|finished)?$", Pattern.CASE_INSENSITIVE).matcher(text.trim())
+        if (completeActiveMatch.find() && (lower.contains("task") || lower.contains("this") || lower.contains("done") || lower.contains("complete") || lower.contains("finish"))) {
+            return ParsedIntent(
+                intent = "COMPLETE_TASK_TITLE",
+                parameters = mapOf("title" to "this"),
+                requiresConfirmation = false
+            )
+        }
+
+        val completeTitleMatch = Pattern.compile("^(?:mark|finish|complete)\\s+(?:task\\s+)?['\"]?([^'\"]+?)['\"]?(?:\\s+(?:done|complete|as\\s+done|completed))?$", Pattern.CASE_INSENSITIVE).matcher(text.trim())
         if (completeTitleMatch.find()) {
             val title = completeTitleMatch.group(1)?.trim() ?: ""
-            if (title.isNotEmpty() && !title.equals("all", ignoreCase = true) && !title.contains("milestone", ignoreCase = true) && !title.contains("project", ignoreCase = true)) {
+            if (title.isNotEmpty() && !title.equals("all", ignoreCase = true) && !title.contains("milestone", ignoreCase = true) && !title.contains("project", ignoreCase = true) && !title.equals("this", ignoreCase = true) && !title.equals("this task", ignoreCase = true)) {
                 return ParsedIntent(
                     intent = "COMPLETE_TASK_TITLE",
                     parameters = mapOf("title" to title),
-                    requiresConfirmation = true,
-                    confirmationPrompt = "Complete task '$title'. Confirm?"
+                    requiresConfirmation = false
                 )
             }
         }
@@ -842,7 +850,10 @@ object DexterIntentRouter {
         // 2. Task queries: "what are all the pending tasks today", "what tasks do i have", "show completed tasks"
         if (cleanLower.contains(Regex("\\b(tasks?|todos?|pending|to do|to-do|work|agenda|unfinished)\\b")) ||
             cleanLower.contains("what do i need to do") || cleanLower.contains("what do i have to do") ||
-            cleanLower.contains("what have i finished") || cleanLower.contains("do i have any tasks")) {
+            cleanLower.contains("what have i finished") || cleanLower.contains("do i have any tasks") ||
+            cleanLower.contains("what are all pending") || cleanLower.contains("what are pending") ||
+            cleanLower.contains("what all pending") || cleanLower.contains("show all pending") ||
+            cleanLower.contains("list all pending") || cleanLower.contains("list tasks")) {
             if (cleanLower.contains("completed") || cleanLower.contains("finished") || cleanLower.contains("done")) {
                 return ParsedIntent("LIST_COMPLETED_TASKS")
             }
@@ -942,6 +953,11 @@ object DexterIntentRouter {
     }
 
     private fun isActionableImperative(lower: String): Boolean {
+        if (lower.startsWith("complete ") || lower.startsWith("finish ") || lower.startsWith("cancel ") || lower.startsWith("mark ")) {
+            if (lower.contains("task") || lower.contains("alarm") || lower.contains("reminder") || lower.contains("milestone") || lower.contains("this") || lower.contains("done")) {
+                return false
+            }
+        }
         val actionVerbs = listOf(
             "buy", "purchase", "call", "email", "message", "send", "submit", "pay",
             "clean", "prepare", "order", "book", "schedule", "check", "fix", "repair",

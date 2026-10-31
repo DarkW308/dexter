@@ -81,6 +81,10 @@ android {
         viewBinding = true
     }
 
+    androidResources {
+        noCompress.addAll(listOf("onnx", "cact"))
+    }
+
     testOptions {
         unitTests.isReturnDefaultValues = true
     }

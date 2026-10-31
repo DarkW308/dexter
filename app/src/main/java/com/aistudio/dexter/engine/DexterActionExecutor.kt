@@ -197,6 +197,94 @@ class DexterActionExecutor(
                 }
             }
 
+            // 3b. COMPLETE_TASK_TITLE
+            "COMPLETE_TASK_TITLE" -> {
+                val rawTitle = (action.parameters["title"] as? String)?.trim() ?: ""
+                val pending = taskRepo.listPendingTasks()
+                val isPronoun = rawTitle.isEmpty() || rawTitle.equals("this", ignoreCase = true) ||
+                        rawTitle.equals("this task", ignoreCase = true) || rawTitle.equals("the task", ignoreCase = true) ||
+                        rawTitle.equals("it", ignoreCase = true) || rawTitle.equals("current task", ignoreCase = true)
+
+                val targetTask = if (isPronoun) {
+                    pending.firstOrNull()
+                } else {
+                    pending.firstOrNull { it.title.equals(rawTitle, ignoreCase = true) }
+                        ?: pending.firstOrNull { it.title.contains(rawTitle, ignoreCase = true) }
+                }
+
+                if (targetTask != null) {
+                    val success = taskRepo.completeTask(targetTask.id, completionSource = "DEXTER_RECORDED", actorType = action.actorType)
+                    if (success) {
+                        ActionResult(
+                            success = true,
+                            intent = "COMPLETE_TASK_TITLE",
+                            message = "Marked task '${targetTask.title}' complete.",
+                            entityType = "TASK",
+                            entityId = targetTask.id,
+                            data = mapOf("taskId" to targetTask.id, "title" to targetTask.title)
+                        )
+                    } else {
+                        ActionResult(
+                            success = false,
+                            intent = "COMPLETE_TASK_TITLE",
+                            message = "Could not complete task '${targetTask.title}'.",
+                            errorCode = "UPDATE_FAILED"
+                        )
+                    }
+                } else {
+                    val msg = if (isPronoun) "You have no active pending tasks to complete." else "Could not find a pending task matching '$rawTitle'."
+                    ActionResult(
+                        success = false,
+                        intent = "COMPLETE_TASK_TITLE",
+                        message = msg,
+                        errorCode = "TASK_NOT_FOUND"
+                    )
+                }
+            }
+
+            // 3c. CANCEL_TASK_TITLE
+            "CANCEL_TASK_TITLE" -> {
+                val rawTitle = (action.parameters["title"] as? String)?.trim() ?: ""
+                val pending = taskRepo.listPendingTasks()
+                val isPronoun = rawTitle.isEmpty() || rawTitle.equals("this", ignoreCase = true) ||
+                        rawTitle.equals("this task", ignoreCase = true) || rawTitle.equals("it", ignoreCase = true)
+
+                val targetTask = if (isPronoun) {
+                    pending.firstOrNull()
+                } else {
+                    pending.firstOrNull { it.title.equals(rawTitle, ignoreCase = true) }
+                        ?: pending.firstOrNull { it.title.contains(rawTitle, ignoreCase = true) }
+                }
+
+                if (targetTask != null) {
+                    val success = taskRepo.deleteTask(targetTask.id)
+                    if (success) {
+                        ActionResult(
+                            success = true,
+                            intent = "CANCEL_TASK_TITLE",
+                            message = "Cancelled task '${targetTask.title}'.",
+                            entityType = "TASK",
+                            entityId = targetTask.id
+                        )
+                    } else {
+                        ActionResult(
+                            success = false,
+                            intent = "CANCEL_TASK_TITLE",
+                            message = "Could not cancel task '${targetTask.title}'.",
+                            errorCode = "UPDATE_FAILED"
+                        )
+                    }
+                } else {
+                    val msg = if (isPronoun) "You have no active pending tasks to cancel." else "Could not find a pending task matching '$rawTitle'."
+                    ActionResult(
+                        success = false,
+                        intent = "CANCEL_TASK_TITLE",
+                        message = msg,
+                        errorCode = "TASK_NOT_FOUND"
+                    )
+                }
+            }
+
             // 4. USER_REPORT_TASK_COMPLETION
             "USER_REPORT_TASK_COMPLETION" -> {
                 val taskId = action.parameters["task_id"] as? Long ?: 0L
