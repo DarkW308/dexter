@@ -2,6 +2,8 @@ package com.aistudio.dexter.engine
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -41,13 +43,16 @@ class DexterAudioEngine(
 
     companion object {
         private const val TAG = "DexterAudioEngine"
-        private val WAKE_WORDS_REGEX = Regex("(?i)\\b(alexa|hey alexa|dexter|hey dexter|ok dexter|okay dexter|buddy|hey buddy)\\b")
+        // Active wake words: "Hey Dexter" and "Buddy"
+        private val WAKE_WORDS_REGEX = Regex("(?i)\\b(hey dexter|dexter|buddy|hey buddy)\\b")
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
     private var isTtsReady = false
     private var speechRecognizer: SpeechRecognizer? = null
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private var wasMutedForRecognition = false
 
     private val isListeningActive = AtomicBoolean(false)
     var isAlexaHandsFreeEnabled = true
@@ -62,17 +67,17 @@ class DexterAudioEngine(
     private var onSpeechDoneCallback: (() -> Unit)? = null
     private var consecutiveErrors = 0
 
-    // Offline ONNX Wake-Word Detector for "Hey Dexter", "Dexter", and "buddy"
+    // Offline ONNX Wake-Word Detector for "Hey Dexter" and "buddy"
     val wakeWordDetector = OnnxWakeWordDetector(context).apply {
         onWakeWordDetected = { detection ->
-            Log.i(TAG, "Offline ONNX Wake-Word Triggered: '${detection.keyword}' (conf=${"%.2f".format(detection.confidence)})")
+            Log.i(TAG, "Offline Wake-Word Triggered: '${detection.keyword}' (conf=${"%.2f".format(detection.confidence)})")
             mainHandler.post {
                 handleWakeWordTriggered(detection.keyword)
             }
         }
     }
 
-    // AudioRecord continuous capture for low-power offline wake-word spotting
+    // AudioRecord continuous capture for 100% silent low-power background wake-word spotting
     val wakeWordRecorder = ContinuousWakeWordRecorder(context, wakeWordDetector)
 
     private val silenceHallucinations = setOf(
@@ -123,7 +128,6 @@ class DexterAudioEngine(
                         }
                     }
 
-                    @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
                         _engineState.value = OrbVisualState.IDLE
                         mainHandler.post {
@@ -134,15 +138,17 @@ class DexterAudioEngine(
                     }
                 })
                 isTtsReady = true
-                Log.i(TAG, "TTS engine initialized successfully.")
+                Log.i(TAG, "TextToSpeech initialized successfully.")
             }
+        } else {
+            Log.w(TAG, "TTS initialization failed with code: $status")
+            isTtsReady = false
         }
     }
 
     /**
-     * Starts continuous listening for wake words ("Hey Dexter", "Dexter", "buddy", "Alexa").
-     * Launches the offline ONNX wake-word detector on AudioRecord, and in proactive mode
-     * launches conversational speech recognizer.
+     * Starts continuous listening for wake words ("Hey Dexter", "buddy").
+     * Uses silent AudioRecord stream to avoid any system beeps or battery drain.
      */
     fun startContinuousListening() {
         if (_engineState.value == OrbVisualState.SPEAKING) {
@@ -158,19 +164,14 @@ class DexterAudioEngine(
         }
 
         if (isAlexaHandsFreeEnabled) {
-            // Start low-latency offline ONNX audio stream
-            val started = wakeWordRecorder.startRecording()
-            if (!started) {
-                // If AudioRecord fails (e.g. mic held or emulator without AudioRecord), fallback to SpeechRecognizer loop
-                startActiveSpeechCapture(triggerKeyword = null)
-            } else {
-                _engineState.value = OrbVisualState.IDLE
-            }
+            // Start silent offline audio stream without invoking SpeechRecognizer
+            wakeWordRecorder.startRecording()
+            _engineState.value = OrbVisualState.IDLE
         }
     }
 
     /**
-     * Handles wake-word spotted by the ONNX detector ("Hey Dexter", "Dexter", "buddy").
+     * Handles wake-word spotted by the detector ("Hey Dexter", "buddy").
      */
     private fun handleWakeWordTriggered(keyword: String) {
         if (_engineState.value == OrbVisualState.SPEAKING) return
@@ -178,9 +179,47 @@ class DexterAudioEngine(
         onWakeWordDetectedCallback(keyword)
         _engineState.value = OrbVisualState.LISTENING
 
-        // Pause wake-word recorder and open microphone for speech transcription of user's command
+        // Pause silent wake-word recorder and open speech recognizer for user's command
         wakeWordRecorder.pause()
         startActiveSpeechCapture(keyword)
+    }
+
+    /**
+     * Silences system notification and sound effect streams to suppress the Android SpeechRecognizer start beep.
+     */
+    private fun muteSystemSounds() {
+        try {
+            audioManager?.let { am ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_MUTE, 0)
+                    am.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
+                }
+                wasMutedForRecognition = true
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Notice muting system sounds: ${e.message}")
+        }
+    }
+
+    /**
+     * Restores system sound volumes once speech recognition completes.
+     */
+    private fun unmuteSystemSounds() {
+        if (!wasMutedForRecognition) return
+        mainHandler.postDelayed({
+            try {
+                audioManager?.let { am ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.adjustStreamVolume(AudioManager.STREAM_NOTIFICATION, AudioManager.ADJUST_UNMUTE, 0)
+                        am.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Notice unmuting system sounds: ${e.message}")
+            } finally {
+                wasMutedForRecognition = false
+            }
+        }, 300L)
     }
 
     /**
@@ -200,6 +239,9 @@ class DexterAudioEngine(
                     speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
                 }
 
+                // Suppress the system start-beep sound
+                muteSystemSounds()
+
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
@@ -208,6 +250,7 @@ class DexterAudioEngine(
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 2500L)
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                 }
 
                 isListeningActive.set(true)
@@ -227,9 +270,11 @@ class DexterAudioEngine(
 
                     override fun onEndOfSpeech() {
                         _engineState.value = OrbVisualState.PROCESSING
+                        unmuteSystemSounds()
                     }
 
                     override fun onError(error: Int) {
+                        unmuteSystemSounds()
                         isListeningActive.set(false)
                         _engineState.value = OrbVisualState.IDLE
                         Log.d(TAG, "SpeechRecognizer status code: $error (isProactive=$isProactiveMode)")
@@ -247,13 +292,14 @@ class DexterAudioEngine(
                             return
                         }
 
-                        // Return to offline ONNX wake-word scanning
+                        // Silently return to offline wake-word scanning without beep loops
                         if (isAlexaHandsFreeEnabled) {
                             wakeWordRecorder.resume()
                         }
                     }
 
                     override fun onResults(results: Bundle?) {
+                        unmuteSystemSounds()
                         isListeningActive.set(false)
                         _engineState.value = OrbVisualState.PROCESSING
                         consecutiveErrors = 0
@@ -269,7 +315,7 @@ class DexterAudioEngine(
                             if (isProactiveMode) {
                                 onVoiceTranscribed(cleaned)
                             } else {
-                                // If triggered by ONNX wake word, dispatch directly
+                                // If triggered by wake word, dispatch directly
                                 if (triggerKeyword != null) {
                                     onVoiceTranscribed(cleaned)
                                 } else if (WAKE_WORDS_REGEX.containsMatchIn(cleaned)) {
@@ -307,6 +353,7 @@ class DexterAudioEngine(
 
                 speechRecognizer?.startListening(intent)
             } catch (e: Exception) {
+                unmuteSystemSounds()
                 Log.e(TAG, "Error initiating speechRecognizer", e)
                 isListeningActive.set(false)
                 _engineState.value = OrbVisualState.IDLE
@@ -327,6 +374,7 @@ class DexterAudioEngine(
     }
 
     fun stopActiveListening() {
+        unmuteSystemSounds()
         isListeningActive.set(false)
         mainHandler.post {
             try {
@@ -396,6 +444,7 @@ class DexterAudioEngine(
     fun shutdown() {
         isAlexaHandsFreeEnabled = false
         isProactiveMode = false
+        unmuteSystemSounds()
         stopSpeaking()
         stopActiveListening()
         wakeWordRecorder.stopRecording()

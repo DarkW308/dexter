@@ -5,12 +5,10 @@ package com.aistudio.dexter.engine.wakeword
  */
 object WakeWordConfig {
     const val KEYWORD_HEY_DEXTER = "Hey Dexter"
-    const val KEYWORD_DEXTER = "Dexter"
     const val KEYWORD_BUDDY = "buddy"
 
     val SUPPORTED_KEYWORDS = listOf(
         KEYWORD_HEY_DEXTER,
-        KEYWORD_DEXTER,
         KEYWORD_BUDDY
     )
 
