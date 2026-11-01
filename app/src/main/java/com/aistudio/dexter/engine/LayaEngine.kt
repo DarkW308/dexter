@@ -332,15 +332,32 @@ class LayaEngine private constructor(private val context: Context?) {
             )
         }
 
-        val cleanTitle = text.replace(Regex("(?i)\\b(urgent|critical|important|asap)\\b"), "").trim()
+        // 1. Explicit Actionable Imperative Check
+        if (DexterIntentRouter.isActionableImperative(lower) ||
+            lower.startsWith("create task") || lower.startsWith("add task") || lower.startsWith("new task") ||
+            lower.startsWith("remind me to") || lower.startsWith("need to") || lower.startsWith("have to")) {
+            val cleanTitle = text.replace(Regex("(?i)^(?:create\\s+task|add\\s+task|new\\s+task)\\s*:?\\s*"), "")
+                .replace(Regex("(?i)\\b(urgent|critical|important|asap)\\b"), "").trim()
+            if (cleanTitle.isNotBlank()) {
+                return LayaDecisionResult(
+                    intent = "CREATE_TASK",
+                    confidence = 0.85f,
+                    slots = mapOf(
+                        "title" to cleanTitle.replaceFirstChar { it.uppercase() },
+                        "priority" to priority
+                    ),
+                    targetSegment = 1
+                )
+            }
+        }
+
+        // 2. Safe Fallback: UNKNOWN / CLARIFY (Never turn random unrecognized speech into tasks!)
         return LayaDecisionResult(
-            intent = "CREATE_TASK",
-            confidence = 0.78f,
-            slots = mapOf(
-                "title" to cleanTitle.replaceFirstChar { it.uppercase() },
-                "priority" to priority
-            ),
-            targetSegment = 1
+            intent = "UNKNOWN",
+            confidence = 0.20f,
+            slots = mapOf("query" to text),
+            targetSegment = 1,
+            explanation = "Utterance did not match recognized intent schema; avoided task bucket fallback"
         )
     }
 

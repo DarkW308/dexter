@@ -807,13 +807,13 @@ class DexterActionExecutor(
                 )
             }
 
-            // 22. CONVERSATIONAL_REASONING (Needle-3 on-device intelligence across 16 segments)
-            "CONVERSATIONAL_REASONING" -> {
+            // 22. GENERAL / CONVERSATIONAL_REASONING (On-device conversational intelligence across 16 segments)
+            "GENERAL", "CONVERSATIONAL_REASONING" -> {
                 val query = action.parameters["query"] as? String ?: "Status check"
                 val result = NeedleConversationalEngine.synthesizeResponse(query, repository)
                 ActionResult(
                     success = true,
-                    intent = "CONVERSATIONAL_REASONING",
+                    intent = intent,
                     message = result.answer,
                     entityType = "CONVERSATION",
                     data = mapOf(

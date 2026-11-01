@@ -38,6 +38,8 @@ sealed class ModelDownloadState {
  *
  * Manages downloading, updating, and removing on-device Edge AI models from Hugging Face
  * for offline execution on resource-constrained devices (MediaTek Helio P60 / Android 8.1+).
+ * Enables the base APK to remain slim (<40 MB) while downloading real neural weights
+ * on first launch into local private storage (100% offline with zero cloud telemetry).
  */
 class ModelDownloadManager private constructor(private val context: Context) {
 
@@ -67,34 +69,43 @@ class ModelDownloadManager private constructor(private val context: Context) {
 
     private var currentDownloadJob: Job? = null
 
+    val gemmaTargetFile: File
+        get() = File(context.filesDir, "models/gemma3_270m_q4.gguf")
+
     val layaTargetFile: File
-        get() = LayaEngine.getInstance(context).getModelFile()
+        get() = File(context.filesDir, "models/laya_int8.onnx")
 
     val needleTargetFile: File
-        get() = File(context.filesDir, "needle3")
-
-    private fun isAssetPresent(subDir: String, filename: String): Boolean {
-        return try {
-            val list = context.assets.list(subDir) ?: emptyArray()
-            list.contains(filename)
-        } catch (e: Exception) {
-            false
-        }
-    }
+        get() = File(context.filesDir, "needle/needle3.cact")
 
     fun getPresetModels(): List<ModelInfo> {
+        val gemmaFile = gemmaTargetFile
         val layaFile = layaTargetFile
         val needleFile = needleTargetFile
-        val layaBundled = isAssetPresent("models", "laya_int8.onnx")
-        val needleBundled = isAssetPresent("needle", "needle3")
 
-        val layaInstalled = (layaFile.exists() && layaFile.length() > 0) || layaBundled
-        val needleInstalled = (needleFile.exists() && needleFile.length() > 0) || needleBundled
+        // Verification checks: File must exceed 1MB to avoid 75-byte text stubs
+        val gemmaInstalled = gemmaFile.exists() && gemmaFile.length() > 1024 * 1024
+        val layaInstalled = layaFile.exists() && layaFile.length() > 1024 * 1024
+        val needleInstalled = needleFile.exists() && needleFile.length() > 1024 * 1024
 
-        val layaSize = if (layaFile.exists()) layaFile.length() else if (layaBundled) 34910000L else 0L
-        val needleSize = if (needleFile.exists()) needleFile.length() else if (needleBundled) 35335000L else 0L
+        val gemmaSize = if (gemmaInstalled) gemmaFile.length() else 0L
+        val layaSize = if (layaInstalled) layaFile.length() else 0L
+        val needleSize = if (needleInstalled) needleFile.length() else 0L
 
         return listOf(
+            ModelInfo(
+                id = "gemma3_270m",
+                name = "Gemma 3 270M-IT (Q4_K_M GGUF)",
+                repoId = "unsloth/gemma-3-270m-it-GGUF",
+                downloadUrl = "https://huggingface.co/unsloth/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q4_K_M.gguf",
+                format = "GGUF INT4",
+                targetFile = gemmaFile,
+                estimatedSizeMb = 241.0,
+                role = "Conversational Natural Language & Proactive Dialogue",
+                compatibilityNote = "Generative brain · 4-thread ARM NEON on Helio P60 · ~250 MB RAM",
+                isInstalled = gemmaInstalled,
+                installedSizeBytes = gemmaSize
+            ),
             ModelInfo(
                 id = "laya",
                 name = "Laya (ModernBERT INT8)",
@@ -104,7 +115,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
                 targetFile = layaFile,
                 estimatedSizeMb = 34.2,
                 role = "Fast Decision & Slot-Filling Classifier (ONNX Runtime)",
-                compatibilityNote = "Bundled default · 2-thread ARM NEON on Helio P60 · ~34 MB RAM",
+                compatibilityNote = "Sub-30ms intent parsing · 2-thread ARM NEON · ~34 MB RAM",
                 isInstalled = layaInstalled,
                 installedSizeBytes = layaSize
             ),
@@ -112,29 +123,20 @@ class ModelDownloadManager private constructor(private val context: Context) {
                 id = "needle3",
                 name = "Needle 3 (121M LSAN)",
                 repoId = "Cactus-Compute/needle3",
-                downloadUrl = "https://huggingface.co/Cactus-Compute/needle3/resolve/main/needle3_arm64",
-                format = "ARM64 Native Daemon",
+                downloadUrl = "https://huggingface.co/Cactus-Compute/needle3/resolve/main/needle3.cact",
+                format = "Cactus LSAN",
                 targetFile = needleFile,
                 estimatedSizeMb = 33.8,
-                role = "Asynchronous Background Planning & Milestone Generator",
-                compatibilityNote = "Bundled default · Shuts down when idle · Peak 71.1 MB RAM",
+                role = "Multi-Step Deep Project Planning & Decomposition",
+                compatibilityNote = "Asynchronous planner · Shuts down when idle · ~35 MB RAM",
                 isInstalled = needleInstalled,
                 installedSizeBytes = needleSize
-            ),
-            ModelInfo(
-                id = "smollm2",
-                name = "SmolLM2-360M (INT4)",
-                repoId = "HuggingFaceTB/SmolLM2-360M-Instruct",
-                downloadUrl = "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/onnx/model_int4.onnx",
-                format = "ONNX INT4",
-                targetFile = File(context.filesDir, "models/smollm2_360m_int4.onnx"),
-                estimatedSizeMb = 142.0,
-                role = "Compact Generative Synthesis (Alternative SLM)",
-                compatibilityNote = "Lightweight generative SLM for devices with ≥ 4GB RAM",
-                isInstalled = File(context.filesDir, "models/smollm2_360m_int4.onnx").exists(),
-                installedSizeBytes = File(context.filesDir, "models/smollm2_360m_int4.onnx").let { if (it.exists()) it.length() else 0L }
             )
         )
+    }
+
+    fun hasAnyModelInstalled(): Boolean {
+        return getPresetModels().any { it.isInstalled }
     }
 
     /**
@@ -162,7 +164,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
         onResult: ((success: Boolean, message: String) -> Unit)? = null
     ) {
         val model = getPresetModels().find { it.id == modelId }
-        val targetFile = model?.targetFile ?: File(context.filesDir, "models/${modelId}_int8.onnx")
+        val targetFile = model?.targetFile ?: File(context.filesDir, "models/${modelId}.bin")
         val downloadUrl = normalizeHuggingFaceUrl(customUrl ?: model?.downloadUrl ?: "")
 
         if (downloadUrl.isBlank()) {
@@ -234,11 +236,6 @@ class ModelDownloadManager private constructor(private val context: Context) {
                 if (modelId == "needle3") {
                     targetFile.setReadable(true, false)
                     targetFile.setExecutable(true, false)
-                    try {
-                        Runtime.getRuntime().exec(arrayOf("chmod", "755", targetFile.absolutePath)).waitFor()
-                    } catch (e: Exception) {
-                        Log.w(TAG, "chmod warning: ${e.message}")
-                    }
                 }
 
                 // If Laya ONNX, reload session

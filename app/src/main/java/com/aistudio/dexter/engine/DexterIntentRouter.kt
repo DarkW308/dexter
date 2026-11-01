@@ -181,20 +181,28 @@ object DexterIntentRouter {
             return ParsedIntent(
                 intent = "CANCEL_TASK",
                 parameters = mapOf("taskId" to id),
-                requiresConfirmation = true,
-                confirmationPrompt = "Cancel task #$id. Confirm?"
+                requiresConfirmation = false
+            )
+        }
+
+        // Active task cancel pronouns: "delete this task", "delete task", "cancel this task", "cancel task", "remove this task", "remove task"
+        val cancelActiveMatch = Pattern.compile("^(?:cancel|delete|remove|abandon)\\s+(?:this|the|current)?\\s*(?:task)?$", Pattern.CASE_INSENSITIVE).matcher(text.trim())
+        if (cancelActiveMatch.find() && (lower.contains("task") || lower.contains("this") || lower.startsWith("delete") || lower.startsWith("cancel") || lower.startsWith("remove"))) {
+            return ParsedIntent(
+                intent = "CANCEL_TASK_TITLE",
+                parameters = mapOf("title" to "this"),
+                requiresConfirmation = false
             )
         }
 
         val cancelTitleMatch = Pattern.compile("(?:cancel|delete|remove)\\s+(?:task\\s+)?['\"]?([^'\"]+?)['\"]?$", Pattern.CASE_INSENSITIVE).matcher(text)
         if (cancelTitleMatch.find() && (lower.startsWith("cancel ") || lower.startsWith("delete ") || lower.startsWith("remove "))) {
             val candidate = cancelTitleMatch.group(1)?.trim() ?: ""
-            if (candidate.isNotEmpty() && !candidate.contains("alarm") && !candidate.contains("reminder")) {
+            if (candidate.isNotEmpty() && !candidate.contains("alarm") && !candidate.contains("reminder") && !candidate.equals("this", ignoreCase = true) && !candidate.equals("task", ignoreCase = true)) {
                 return ParsedIntent(
                     intent = "CANCEL_TASK_TITLE",
                     parameters = mapOf("title" to candidate),
-                    requiresConfirmation = true,
-                    confirmationPrompt = "Cancel task '$candidate'. Confirm?"
+                    requiresConfirmation = false
                 )
             }
         }
@@ -693,7 +701,7 @@ object DexterIntentRouter {
      * Extracts journal/diary content and auto-infers mood and category tags.
      */
     fun extractJournalNote(text: String): JournalMatch? {
-        val pattern = Pattern.compile("^(?:take a note|save note|note|journal entry|journal|diary entry|diary|write down)[:\\s]+(.+)", Pattern.CASE_INSENSITIVE)
+        val pattern = Pattern.compile("^(?:file (?:this |a )?log|create (?:a )?(?:general|journal) entry|create (?:a )?diary entry|log (?:a )?(?:journal|diary|log|note)|take a note|save note|note|journal entry|journal|diary entry|diary|write down|record (?:a )?(?:journal|diary))[:\\s]+(.+)", Pattern.CASE_INSENSITIVE)
         val m = pattern.matcher(text)
         if (m.find()) {
             val content = m.group(1)?.trim() ?: return null
@@ -783,8 +791,8 @@ object DexterIntentRouter {
             return Pair(label, computeAlarmEpochMs(hour, min, amPm))
         }
 
-        // 4. Alarm-style: "set an alarm for 6:30 AM", "wake me up at 6 AM", "set alarm at 7 AM called Workout"
-        val alarmPattern = Pattern.compile("(?:set an? alarm (?:for|at)|wake me up at)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?(?:\\s+(?:for|to|called|titled)\\s+(.+))?", Pattern.CASE_INSENSITIVE)
+        // 4. Alarm-style: "set an alarm for 6:30 AM", "create an alarm for 7 am", "wake me up at 6 AM", "set alarm at 7 AM called Workout"
+        val alarmPattern = Pattern.compile("(?:(?:create|set|schedule|add)\\s+an?\\s+alarm(?:\\s+(?:for|at))?|(?:create|set|schedule|add)?\\s*alarm\\s+(?:for|at)|wake me up at|wake me at)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?(?:\\s+(?:for|to|called|titled)\\s+(.+))?", Pattern.CASE_INSENSITIVE)
         val mAlarm = alarmPattern.matcher(text)
         if (mAlarm.find()) {
             val hour = mAlarm.group(1)?.toIntOrNull() ?: 7
@@ -1197,7 +1205,11 @@ object DexterIntentRouter {
 
     private fun extractProject(text: String): ProjectVoiceMatch? {
         val clean = text.trim()
-        val prefixes = listOf("create a project called", "start project", "create project", "new project", "plan project")
+        val prefixes = listOf(
+            "create a project called", "create a new project", "create new project",
+            "create a project for", "create a project", "create project",
+            "start a project", "start project", "new project", "plan project"
+        )
         val prefix = prefixes.firstOrNull { clean.startsWith(it, ignoreCase = true) } ?: return null
         var remainder = clean.substring(prefix.length).trim().removePrefix(":").trim()
         if (remainder.isBlank()) return null
