@@ -2,26 +2,27 @@ package com.aistudio.dexter.ui.view
 
 import android.app.Dialog
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.speech.RecognizerIntent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import androidx.core.content.ContextCompat
+import com.aistudio.dexter.DexterApp
 import com.aistudio.dexter.R
 import com.aistudio.dexter.databinding.DialogVoiceInteractionBinding
 import com.aistudio.dexter.engine.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
+import java.util.Locale
 
 /**
  * Fullscreen modal voice interaction overlay for Dexter.
  * Shows enlarged animated VoiceOrbView, live partial STT transcription,
  * inline confirmation prompt for destructive actions, and text fallback input.
+ * Fully unified through Google Research Harness² recursive agent pipeline.
  */
-import android.content.Intent
-import android.speech.RecognizerIntent
-import androidx.core.content.ContextCompat
-import java.util.Locale
-
 class VoiceInteractionDialog(
     context: Context,
     private val speechManager: DexterSpeechManager,
@@ -110,7 +111,7 @@ class VoiceInteractionDialog(
             }
         }
 
-        // Quick Command Action Chips
+        // Quick Command Action Chips across Segments
         binding.chipTraveling.setOnClickListener {
             processUserText("spent 45 in traveling")
         }
@@ -279,59 +280,32 @@ class VoiceInteractionDialog(
     }
 
     private fun processUserText(text: String) {
-        binding.transcriptText.text = "\"$text\""
+        val clean = text.trim()
+        if (clean.isBlank()) return
+
+        binding.transcriptText.text = "\"$clean\""
         speechManager.setVisualState(OrbVisualState.PROCESSING)
 
         dialogScope.launch {
             try {
-                // Tier 1 Fast-Path Regex router
-                val parsed = DexterIntentRouter.parse(text)
-                if (parsed.intent != "EMPTY" && parsed.intent != "UNKNOWN" && !parsed.isNegationOrClarification) {
-                    val contract = ActionContract(
-                        intent = parsed.intent,
-                        parameters = parsed.parameters,
-                        confirmed = false
-                    )
-                    handleContract(contract)
-                    return@launch
+                val repository = (context.applicationContext as DexterApp).repository
+                val harnessEngine = Harness2Engine.getInstance(context, repository, actionExecutor)
+                val harnessResult = withContext(Dispatchers.IO) {
+                    harnessEngine.executeHarness(clean)
                 }
 
-                // If not matched by regex fast-path, try Needle or deterministic fallback
-                val httpClient = NeedleHttpClient(context)
-                val envelope = httpClient.interpret(text)
-
-                if (envelope.needsClarification) {
-                    val prompt = envelope.clarificationPrompt ?: "Could you please clarify that?"
+                if (harnessResult.requiresUserConfirmation) {
+                    val prompt = harnessResult.confirmationPrompt ?: "Proceed with this change? Confirm?"
+                    binding.confirmationCard.visibility = View.VISIBLE
+                    binding.confirmationPromptText.text = prompt
                     speechManager.speak(prompt)
-                } else if (envelope.action != null) {
-                    handleContract(envelope.action)
                 } else {
-                    speechManager.speak("I didn't quite catch that. Try saying 'Remind me to call mom at 5 PM' or 'Spent 200 on fuel'.")
+                    speechManager.speak(harnessResult.summaryText)
+                    onActionCompleted?.invoke(harnessResult.summaryText)
                 }
             } catch (e: Exception) {
                 speechManager.speak("Sorry, I encountered an issue processing that.")
             }
-        }
-    }
-
-    private fun handleContract(action: ActionContract) {
-        val intent = action.intent.uppercase()
-        if (DexterContractValidator.isDestructive(intent) && !action.confirmed) {
-            // Require user confirmation before destructive execution
-            pendingDestructiveAction = action
-            binding.confirmationCard.visibility = View.VISIBLE
-
-            val promptText = when (intent) {
-                "COMPLETE_TASK" -> "Complete this task? Confirm?"
-                "CANCEL_TASK" -> "Cancel this task? Confirm?"
-                "COMPLETE_ALL_TASKS" -> "Mark all pending tasks as complete? Confirm?"
-                "CANCEL_ALARMS" -> "Cancel all alarms? Confirm?"
-                else -> "Proceed with this change? Confirm?"
-            }
-            binding.confirmationPromptText.text = promptText
-            speechManager.speak(promptText)
-        } else {
-            executeAction(action)
         }
     }
 

@@ -248,4 +248,78 @@ class DexterIntentRouterTest {
         assertEquals(30.0, personalGoal.parameters["target_amount"] as Double, 0.001)
         assertEquals("days", personalGoal.parameters["metric_unit"])
     }
+
+    @Test
+    fun testSixteenSegments_fullIntegration() {
+        // Segment 7: Schedule Blocks
+        val sched = DexterIntentRouter.parse("schedule Deep Work from 2:00 PM to 4:00 PM")
+        assertEquals("CREATE_SCHEDULE_BLOCK", sched.intent)
+        assertEquals("Deep Work", sched.parameters["title"])
+        assertEquals("2:00 PM", sched.parameters["start_time"])
+        assertEquals("4:00 PM", sched.parameters["end_time"])
+
+        // Segment 8: People & Contacts
+        val person = DexterIntentRouter.parse("add contact Dr. Mehta doctor with phone 9876543210")
+        assertEquals("CREATE_PERSON", person.intent)
+        assertEquals("Dr. Mehta", person.parameters["name"])
+        assertEquals("Doctor", person.parameters["relation_type"])
+        assertEquals("9876543210", person.parameters["phone"])
+
+        // Segment 9: Health & Wellbeing (Hydration, Sleep, Mood)
+        val water = DexterIntentRouter.parse("drank 500 ml water")
+        assertEquals("LOG_HYDRATION", water.intent)
+        assertEquals(500, water.parameters["amount_ml"])
+
+        val waterGlass = DexterIntentRouter.parse("had 2 glasses of water")
+        assertEquals("LOG_HYDRATION", waterGlass.intent)
+        assertEquals(500, waterGlass.parameters["amount_ml"])
+
+        val sleep = DexterIntentRouter.parse("log sleep from 11:00 PM to 07:00 AM restful")
+        assertEquals("LOG_SLEEP", sleep.intent)
+        assertEquals("11:00 PM", sleep.parameters["bedtime"])
+        assertEquals("07:00 AM", sleep.parameters["waketime"])
+
+        val mood = DexterIntentRouter.parse("log mood energetic energy high")
+        assertEquals("LOG_MOOD", mood.intent)
+        assertEquals("Energetic", mood.parameters["mood"])
+        assertEquals("High", mood.parameters["energy_level"])
+
+        // Segment 10: Habits & Streaks
+        val habit = DexterIntentRouter.parse("create habit Read 20 pages daily at 08:00 AM")
+        assertEquals("CREATE_HABIT", habit.intent)
+        assertEquals("Read 20 pages", habit.parameters["name"])
+        assertEquals("Daily", habit.parameters["frequency"])
+
+        val habitComplete = DexterIntentRouter.parse("complete habit Read 20 pages done")
+        assertEquals("COMPLETE_HABIT", habitComplete.intent)
+        assertEquals("Read 20 pages", habitComplete.parameters["name"])
+
+        // Segment 11: Reading & Knowledge Vault
+        val vault = DexterIntentRouter.parse("remember that my car license plate is MH12 AB 1234")
+        assertEquals("SAVE_KNOWLEDGE", vault.intent)
+        assertTrue(vault.parameters["content"].toString().contains("MH12 AB 1234"))
+
+        // Segment 12: Data Gathering & Intake Hub
+        val intake = DexterIntentRouter.parse("capture note review Dexter offline weights")
+        assertEquals("CAPTURE_INTAKE", intake.intent)
+        assertEquals("review Dexter offline weights", intake.parameters["note_text"])
+
+        // Segment 13: Attention & Priority Feed
+        val ack = DexterIntentRouter.parse("acknowledge alert 5")
+        assertEquals("ACKNOWLEDGE_ATTENTION", ack.intent)
+        assertEquals(5L, ack.parameters["alert_id"])
+
+        // Segment 14: Daily Briefing & Evening Summary
+        val evening = DexterIntentRouter.parse("give me the evening summary")
+        assertEquals("EVENING_SUMMARY", evening.intent)
+
+        // Segment 15: Safety & System Rules
+        val rule = DexterIntentRouter.parse("add rule never spend more than 5000 without review")
+        assertEquals("CREATE_RULE", rule.intent)
+        assertEquals("never spend more than 5000 without review", rule.parameters["rule_text"])
+
+        // Segment 16: Audit Trail
+        val audit = DexterIntentRouter.parse("show audit log")
+        assertEquals("LIST_AUDIT", audit.intent)
+    }
 }

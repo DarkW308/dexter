@@ -776,8 +776,8 @@ class DexterActionExecutor(
             // 20. LOG_INTERACTION (People & Relationships - Segment 8)
             "LOG_INTERACTION" -> {
                 val person = action.parameters["person"] as? String ?: "Contact"
-                val topic = action.parameters["topic"] as? String ?: "Conversation"
-                val type = action.parameters["interactionType"] as? String ?: "Call"
+                val topic = action.parameters["topic"] as? String ?: (action.parameters["note"] as? String ?: "Conversation")
+                val type = action.parameters["interactionType"] as? String ?: (action.parameters["interaction_type"] as? String ?: "Call")
                 val contactId = repository.createPerson(name = person, relationType = "Acquaintance")
                 repository.createInteraction(personId = contactId, note = topic, interactionType = type)
                 ActionResult(
@@ -786,6 +786,383 @@ class DexterActionExecutor(
                     message = "Logged $type with $person regarding $topic.",
                     entityType = "RELATIONSHIP",
                     entityId = contactId
+                )
+            }
+
+            // Segment 7: Time & Schedule (Daily Timetable)
+            "CREATE_SCHEDULE_BLOCK" -> {
+                val title = action.parameters["title"] as? String ?: "Deep Work"
+                val start = action.parameters["start_time"] as? String ?: (action.parameters["startTime"] as? String ?: "09:00 AM")
+                val end = action.parameters["end_time"] as? String ?: (action.parameters["endTime"] as? String ?: "10:00 AM")
+                val category = action.parameters["category"] as? String ?: "Deep Work"
+                val colorHex = action.parameters["color_hex"] as? String ?: (action.parameters["colorHex"] as? String ?: "#4FC3F7")
+                val location = action.parameters["location"] as? String ?: ""
+                val id = repository.createScheduleBlock(title, start, end, category, colorHex, location)
+                ActionResult(
+                    success = true,
+                    intent = "CREATE_SCHEDULE_BLOCK",
+                    message = "Scheduled '$title' from $start to $end.",
+                    entityType = "SCHEDULE",
+                    entityId = id
+                )
+            }
+
+            "LIST_SCHEDULE" -> {
+                val blocks = repository.listScheduleBlocks()
+                val msg = if (blocks.isEmpty()) {
+                    "Your schedule is open today with no timetable blocks set."
+                } else {
+                    val summary = blocks.take(3).joinToString("; ") { "${it.title} (${it.startTime} - ${it.endTime})" }
+                    "You have ${blocks.size} block(s) scheduled today: $summary."
+                }
+                ActionResult(
+                    success = true,
+                    intent = "LIST_SCHEDULE",
+                    message = msg,
+                    entityType = "SCHEDULE",
+                    data = mapOf("count" to blocks.size, "blocks" to blocks)
+                )
+            }
+
+            // Segment 8: People & Relationships
+            "CREATE_PERSON" -> {
+                val name = action.parameters["name"] as? String ?: "Contact"
+                val rel = action.parameters["relation_type"] as? String ?: (action.parameters["relationType"] as? String ?: "Friend")
+                val phone = action.parameters["phone"] as? String ?: ""
+                val id = repository.createPerson(name = name, relationType = rel, phone = phone)
+                ActionResult(
+                    success = true,
+                    intent = "CREATE_PERSON",
+                    message = "Added contact '$name' as $rel.",
+                    entityType = "PERSON",
+                    entityId = id
+                )
+            }
+
+            "LIST_PEOPLE" -> {
+                val people = repository.listPeople()
+                val msg = if (people.isEmpty()) {
+                    "You have no saved contacts in your relationship vault."
+                } else {
+                    val names = people.take(4).joinToString(", ") { it.name }
+                    "You have ${people.size} saved contact(s), including $names."
+                }
+                ActionResult(
+                    success = true,
+                    intent = "LIST_PEOPLE",
+                    message = msg,
+                    entityType = "PERSON",
+                    data = mapOf("count" to people.size, "people" to people)
+                )
+            }
+
+            // Segment 9: Health & Wellbeing (Hydration, Sleep, Mood)
+            "LOG_HYDRATION" -> {
+                val amount = (action.parameters["amount_ml"] as? Number)?.toInt()
+                    ?: (action.parameters["amountMl"] as? Number)?.toInt() ?: 250
+                repository.logHydration(amount)
+                val total = repository.getHydrationTodayMl()
+                ActionResult(
+                    success = true,
+                    intent = "LOG_HYDRATION",
+                    message = "Logged $amount ml of water. Total intake today is now $total ml.",
+                    entityType = "WELLBEING",
+                    data = mapOf("loggedMl" to amount, "totalTodayMl" to total)
+                )
+            }
+
+            "GET_HYDRATION" -> {
+                val total = repository.getHydrationTodayMl()
+                ActionResult(
+                    success = true,
+                    intent = "GET_HYDRATION",
+                    message = "Your total water intake recorded today is $total ml.",
+                    entityType = "WELLBEING",
+                    data = mapOf("totalTodayMl" to total)
+                )
+            }
+
+            "LOG_SLEEP" -> {
+                val bed = action.parameters["bedtime"] as? String ?: "11:00 PM"
+                val wake = action.parameters["waketime"] as? String ?: "07:00 AM"
+                val dur = action.parameters["duration_text"] as? String ?: (action.parameters["durationText"] as? String ?: "8h")
+                val rating = (action.parameters["quality_rating"] as? Number)?.toInt()
+                    ?: (action.parameters["qualityRating"] as? Number)?.toInt() ?: 4
+                val label = action.parameters["quality_label"] as? String ?: (action.parameters["qualityLabel"] as? String ?: "Restful")
+                val notes = action.parameters["notes"] as? String ?: ""
+                val id = repository.logSleep(bed, wake, dur, rating, label, notes)
+                ActionResult(
+                    success = true,
+                    intent = "LOG_SLEEP",
+                    message = "Recorded $dur of $label sleep ($bed to $wake).",
+                    entityType = "WELLBEING",
+                    entityId = id
+                )
+            }
+
+            "LIST_SLEEP" -> {
+                val logs = repository.listSleep()
+                val msg = if (logs.isEmpty()) {
+                    "No sleep sessions recorded yet."
+                } else {
+                    val latest = logs.first()
+                    "Latest sleep recorded: ${latest.durationText} (${latest.qualityLabel}, ${latest.bedtime} to ${latest.waketime})."
+                }
+                ActionResult(
+                    success = true,
+                    intent = "LIST_SLEEP",
+                    message = msg,
+                    entityType = "WELLBEING",
+                    data = mapOf("logs" to logs)
+                )
+            }
+
+            "LOG_MOOD" -> {
+                val mood = action.parameters["mood"] as? String ?: "Reflective"
+                val energy = action.parameters["energy_level"] as? String ?: (action.parameters["energyLevel"] as? String ?: "Medium")
+                val note = action.parameters["note"] as? String ?: ""
+                val id = repository.logMood(mood, energy, note)
+                ActionResult(
+                    success = true,
+                    intent = "LOG_MOOD",
+                    message = "Logged mood: $mood with $energy energy.",
+                    entityType = "WELLBEING",
+                    entityId = id
+                )
+            }
+
+            "LIST_MOODS" -> {
+                val moods = repository.listMoods()
+                val msg = if (moods.isEmpty()) {
+                    "No recent mood logs recorded."
+                } else {
+                    val latest = moods.first()
+                    "Latest mood logged: ${latest.mood} (${latest.energyLevel} energy)."
+                }
+                ActionResult(
+                    success = true,
+                    intent = "LIST_MOODS",
+                    message = msg,
+                    entityType = "WELLBEING",
+                    data = mapOf("moods" to moods)
+                )
+            }
+
+            // Segment 10: Habits & Streaks
+            "CREATE_HABIT" -> {
+                val name = action.parameters["name"] as? String ?: "New Habit"
+                val freq = action.parameters["frequency"] as? String ?: "Daily"
+                val time = action.parameters["reminder_time"] as? String ?: (action.parameters["reminderTime"] as? String ?: "08:00 AM")
+                val cat = action.parameters["category"] as? String ?: "Health"
+                val id = repository.createHabit(name = name, frequency = freq, reminderTime = time, category = cat)
+                ActionResult(
+                    success = true,
+                    intent = "CREATE_HABIT",
+                    message = "Started habit '$name' ($freq at $time).",
+                    entityType = "HABIT",
+                    entityId = id
+                )
+            }
+
+            "COMPLETE_HABIT" -> {
+                val habitName = action.parameters["name"] as? String ?: ""
+                val habits = repository.listHabits()
+                val target = habits.firstOrNull { it.name.contains(habitName, ignoreCase = true) }
+                    ?: habits.firstOrNull { !it.isDoneToday }
+                if (target != null) {
+                    repository.toggleHabitDoneToday(target.id)
+                    ActionResult(
+                        success = true,
+                        intent = "COMPLETE_HABIT",
+                        message = "Completed habit '${target.name}' for today! Current streak: ${target.streakCount + 1} days.",
+                        entityType = "HABIT",
+                        entityId = target.id
+                    )
+                } else {
+                    ActionResult(
+                        success = false,
+                        intent = "COMPLETE_HABIT",
+                        message = "Could not find an active habit matching '$habitName'.",
+                        errorCode = "HABIT_NOT_FOUND"
+                    )
+                }
+            }
+
+            "LIST_HABITS" -> {
+                val habits = repository.listHabits()
+                val msg = if (habits.isEmpty()) {
+                    "You have no habits tracked."
+                } else {
+                    val summary = habits.joinToString(", ") { "${it.name} (${it.streakCount}d streak)" }
+                    "You have ${habits.size} active habit(s): $summary."
+                }
+                ActionResult(
+                    success = true,
+                    intent = "LIST_HABITS",
+                    message = msg,
+                    entityType = "HABIT",
+                    data = mapOf("habits" to habits)
+                )
+            }
+
+            // Segment 11: Reading & Knowledge Vault (Memory)
+            "SAVE_KNOWLEDGE" -> {
+                val content = action.parameters["content"] as? String ?: ""
+                val title = action.parameters["title"] as? String ?: "Memory"
+                val cat = action.parameters["category"] as? String ?: "Personal Profile"
+                val id = repository.createDocument(title = title, content = content, category = cat)
+                ActionResult(
+                    success = true,
+                    intent = "SAVE_KNOWLEDGE",
+                    message = "Saved note to Knowledge Vault: '$title'.",
+                    entityType = "KNOWLEDGE",
+                    entityId = id
+                )
+            }
+
+            "QUERY_KNOWLEDGE" -> {
+                val q = action.parameters["query"] as? String ?: ""
+                val docs = repository.listDocuments(q)
+                val msg = if (docs.isEmpty()) {
+                    "I searched your Knowledge Vault for '$q' but found no matching records."
+                } else {
+                    val top = docs.first()
+                    val excerpt = if (top.content.length > 100) top.content.take(100) + "..." else top.content
+                    "Found in vault: '${top.title}' - $excerpt"
+                }
+                ActionResult(
+                    success = true,
+                    intent = "QUERY_KNOWLEDGE",
+                    message = msg,
+                    entityType = "KNOWLEDGE",
+                    data = mapOf("query" to q, "results" to docs)
+                )
+            }
+
+            // Segment 12: Data Gathering & Raw Intake Hub
+            "CAPTURE_INTAKE" -> {
+                val note = action.parameters["note_text"] as? String ?: (action.parameters["noteText"] as? String ?: "")
+                val tag = action.parameters["category_tag"] as? String ?: (action.parameters["categoryTag"] as? String ?: "General")
+                val id = repository.createCaptureNote(noteText = note, categoryTag = tag)
+                ActionResult(
+                    success = true,
+                    intent = "CAPTURE_INTAKE",
+                    message = "Captured note into intake hub: '$note'.",
+                    entityType = "INTAKE",
+                    entityId = id
+                )
+            }
+
+            "LIST_INTAKE" -> {
+                val notes = repository.listCaptureNotes(includeProcessed = false)
+                val msg = if (notes.isEmpty()) {
+                    "Your raw intake hub is clear. All notes have been processed."
+                } else {
+                    "You have ${notes.size} unprocessed intake item(s). Top item: '${notes.first().noteText}'."
+                }
+                ActionResult(
+                    success = true,
+                    intent = "LIST_INTAKE",
+                    message = msg,
+                    entityType = "INTAKE",
+                    data = mapOf("count" to notes.size, "notes" to notes)
+                )
+            }
+
+            // Segment 13: Attention & Priority Feed
+            "LIST_ATTENTION" -> {
+                val events = repository.listAttentionEvents(includeAcknowledged = false)
+                val msg = if (events.isEmpty()) {
+                    "No pending alerts in your priority feed. All systems optimal."
+                } else {
+                    "You have ${events.size} priority alert(s): '${events.first().title}' (${events.first().urgency})."
+                }
+                ActionResult(
+                    success = true,
+                    intent = "LIST_ATTENTION",
+                    message = msg,
+                    entityType = "ATTENTION",
+                    data = mapOf("events" to events)
+                )
+            }
+
+            "ACKNOWLEDGE_ATTENTION" -> {
+                val id = (action.parameters["alert_id"] as? Number)?.toLong()
+                    ?: (action.parameters["id"] as? Number)?.toLong() ?: 1L
+                val success = repository.acknowledgeAttention(id)
+                ActionResult(
+                    success = success,
+                    intent = "ACKNOWLEDGE_ATTENTION",
+                    message = if (success) "Acknowledged alert #$id." else "Alert #$id not found.",
+                    entityType = "ATTENTION"
+                )
+            }
+
+            // Segment 14: Daily Briefings & Evening Summaries
+            "EVENING_SUMMARY" -> {
+                val report = repository.getComprehensiveEndOfDaySummary()
+                val msg = buildString {
+                    append("Evening summary for ${report.dateString}: ")
+                    append("Completed ${report.completedTasksCount} of ${report.totalTasksToday} tasks today. ")
+                    append("Expenditure: ₹${report.totalSpentRupees.toInt()}. ")
+                    append("Hydration: ${report.hydrationTotalMl} ml. ")
+                    append(report.closingVerdict)
+                }
+                ActionResult(
+                    success = true,
+                    intent = "EVENING_SUMMARY",
+                    message = msg,
+                    entityType = "BRIEFING",
+                    data = mapOf("report" to report)
+                )
+            }
+
+            // Segment 15: Safety & System Rules
+            "CREATE_RULE" -> {
+                val ruleText = action.parameters["rule_text"] as? String ?: (action.parameters["ruleText"] as? String ?: "")
+                val level = action.parameters["enforcement_level"] as? String ?: (action.parameters["enforcementLevel"] as? String ?: "Strict")
+                val id = repository.createRule(ruleText, level)
+                ActionResult(
+                    success = true,
+                    intent = "CREATE_RULE",
+                    message = "Created safety rule: '$ruleText' ($level).",
+                    entityType = "RULE",
+                    entityId = id
+                )
+            }
+
+            "LIST_RULES" -> {
+                val rules = repository.listRules()
+                val msg = if (rules.isEmpty()) {
+                    "No custom system rules defined."
+                } else {
+                    val summary = rules.take(3).joinToString("; ") { it.ruleText }
+                    "You have ${rules.size} active rule(s): $summary."
+                }
+                ActionResult(
+                    success = true,
+                    intent = "LIST_RULES",
+                    message = msg,
+                    entityType = "RULE",
+                    data = mapOf("rules" to rules)
+                )
+            }
+
+            // Segment 16: Audit Trail & Action Logs
+            "LIST_AUDIT" -> {
+                val logs = repository.listAuditLogs(5)
+                val msg = if (logs.isEmpty()) {
+                    "Audit log is clean."
+                } else {
+                    val summary = logs.take(3).joinToString("; ") { "${it.action}: ${it.details}" }
+                    "Recent system actions: $summary."
+                }
+                ActionResult(
+                    success = true,
+                    intent = "LIST_AUDIT",
+                    message = msg,
+                    entityType = "AUDIT",
+                    data = mapOf("logs" to logs)
                 )
             }
 

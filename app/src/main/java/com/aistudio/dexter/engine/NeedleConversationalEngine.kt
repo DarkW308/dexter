@@ -37,39 +37,50 @@ object NeedleConversationalEngine {
 
             val activeGoals = repository?.listGoals()?.filter { it.status.equals("ACTIVE", ignoreCase = true) } ?: emptyList()
             val topGoal = activeGoals.firstOrNull()
+            val schedule = repository?.listScheduleBlocks() ?: emptyList()
 
-            val answer = if (critical != null) {
-                if (topGoal != null) {
-                    "Sir, your immediate focal point must be '${critical.title}'. Resolving this directly advances your broader objective: '${topGoal.title}'. Clear the critical path first."
-                } else {
-                    "Your highest-leverage move right now is '${critical.title}'. It carries ${critical.priority.name.lowercase()} priority; dispatch it before secondary items."
+            val answer = when {
+                schedule.isNotEmpty() -> {
+                    val block = schedule.first()
+                    "Your scheduled focus right now is '${block.title}' (${block.startTime} to ${block.endTime}). Direct all attention there to protect your deep work window."
                 }
-            } else {
-                "All high-priority bottlenecks are currently cleared, sir. You have ${pending.size} routine tasks remaining, or you may deploy energy toward strategic planning."
+                critical != null -> {
+                    if (topGoal != null) {
+                        "Sir, your immediate focal point must be '${critical.title}'. Resolving this directly advances your broader objective: '${topGoal.title}'. Clear the critical path first."
+                    } else {
+                        "Your highest-leverage move right now is '${critical.title}'. It carries ${critical.priority.name.lowercase()} priority; dispatch it before secondary items."
+                    }
+                }
+                else -> {
+                    "All high-priority bottlenecks are currently cleared, sir. You have ${pending.size} routine tasks remaining, or you may deploy energy toward strategic planning."
+                }
             }
 
             return NeedleReasoningResult(
                 answer = answer,
                 spokenAnswer = answer,
-                accessedSegments = listOf(1, 3),
+                accessedSegments = listOf(1, 3, 7),
                 latencyMs = (System.currentTimeMillis() - start).coerceAtLeast(4L)
             )
         }
 
-        // 2. "Reality check" / "How am I doing?" / "Weekly check" / "Audit me"
-        if (lower.contains("reality check") || lower.contains("how am i doing") || lower.contains("performance audit") || lower.contains("check in on me")) {
+        // 2. "Reality check" / "How am I doing?" / "Weekly check" / "Audit me" / "Status report"
+        if (lower.contains("reality check") || lower.contains("how am i doing") || lower.contains("performance audit") || lower.contains("check in on me") || lower.contains("status report") || lower.contains("metrics summary")) {
             val allTasks = repository?.tasks?.getAllTasks() ?: emptyList()
             val completed = allTasks.count { it.isCompleted }
             val pending = allTasks.count { !it.isCompleted }
             val todaySpend = repository?.finance?.getTodayExpenseTotal() ?: 0.0
             val activeGoals = repository?.listGoals()?.count { it.status.equals("ACTIVE", ignoreCase = true) } ?: 0
+            val hydration = repository?.getHydrationTodayMl() ?: 0
+            val habits = repository?.listHabits() ?: emptyList()
+            val habitsDone = habits.count { it.isDoneToday }
 
-            val answer = "Here is your objective reality check, sir: You have resolved $completed tasks, with $pending still pending. Today's recorded expenditure sits at ₹${todaySpend.toInt()}, aligned across $activeGoals active goals. Execution discipline is solid—guard against afternoon friction."
+            val answer = "Here is your objective reality check across your operational metrics, sir: Tasks stand at $completed resolved and $pending pending. Expenditure today is ₹${todaySpend.toInt()}. Hydration sits at ${hydration} ml. Habits completed: $habitsDone of ${habits.size}. Discipline remains intact—maintain execution momentum."
 
             return NeedleReasoningResult(
                 answer = answer,
                 spokenAnswer = answer,
-                accessedSegments = listOf(1, 4, 3),
+                accessedSegments = listOf(1, 3, 4, 9, 10),
                 latencyMs = (System.currentTimeMillis() - start).coerceAtLeast(6L)
             )
         }
@@ -77,7 +88,6 @@ object NeedleConversationalEngine {
         // 3. "Can I afford..." / Financial feasibility check
         if (lower.contains("can i afford") || lower.contains("afford dinner") || lower.contains("budget check") || lower.contains("financial status")) {
             val todaySpend = repository?.finance?.getTodayExpenseTotal() ?: 0.0
-            val recentTx = repository?.finance?.getRecentTransactions(5) ?: emptyList()
 
             val answer = if (todaySpend > 3000.0) {
                 "Caution advised, sir. Today's recorded outflow has already reached ₹${todaySpend.toInt()}. If you commit to an upscale expenditure tonight, budget pacing will enter the amber zone."
@@ -99,8 +109,10 @@ object NeedleConversationalEngine {
             val overdue = pending.filter { it.dueTimestamp in 1 until System.currentTimeMillis() }
             val goals = repository?.listGoals() ?: emptyList()
             val stagnantGoals = goals.filter { it.currentAmount == 0.0 }
+            val alerts = repository?.listAttentionEvents(includeAcknowledged = false) ?: emptyList()
 
             val answer = when {
+                alerts.isNotEmpty() -> "Your chief blindspot is ${alerts.size} unacknowledged priority alert(s): '${alerts.first().title}'. Clear this roadblock immediately."
                 overdue.isNotEmpty() -> "Your chief blindspot is ${overdue.size} overdue task(s), notably '${overdue.first().title}'. Slippage here compounds quietly."
                 stagnantGoals.isNotEmpty() -> "Your chief blindspot is the goal '${stagnantGoals.first().title}', which currently has zero recorded metric progress. Action is needed."
                 else -> "No structural blindspots detected, sir. Deliverables and goals are currently synchronized."
@@ -109,7 +121,7 @@ object NeedleConversationalEngine {
             return NeedleReasoningResult(
                 answer = answer,
                 spokenAnswer = answer,
-                accessedSegments = listOf(1, 3),
+                accessedSegments = listOf(1, 3, 13),
                 latencyMs = (System.currentTimeMillis() - start).coerceAtLeast(5L)
             )
         }
@@ -119,19 +131,19 @@ object NeedleConversationalEngine {
             lower.contains("who are you") || lower.contains("what are you") ->
                 "I am Dexter—your offline executive personal assistant. Engineered for absolute privacy, rapid execution across 16 life segments, and zero cloud reliance."
             lower.contains("how are you") || lower.contains("you doing") ->
-                "Operating at peak efficiency, sir. All database segments are encrypted, responsive, and standing by for your command."
+                "Operating at peak efficiency, sir. All 16 database segments are synchronized, encrypted, and standing by for your command."
             lower.contains("hello") || lower.contains("hey") || lower.contains("hi") ->
                 "Good day, sir. Dexter online and observant. How shall we direct our attention?"
             lower.contains("thank") ->
                 "Always at your service, sir. Let us keep our standards uncompromising."
             else ->
-                "Understood. Dexter is monitoring all directives across your tasks, finances, and goals. Speak plainly whenever action is required."
+                "Understood. Dexter is monitoring all directives across your 16 database segments. Speak plainly whenever action is required."
         }
 
         return NeedleReasoningResult(
             answer = personaBanter,
             spokenAnswer = personaBanter,
-            accessedSegments = listOf(1, 4, 3, 5),
+            accessedSegments = listOf(1, 4, 3, 5, 7, 9, 10, 13),
             latencyMs = (System.currentTimeMillis() - start).coerceAtLeast(3L)
         )
     }

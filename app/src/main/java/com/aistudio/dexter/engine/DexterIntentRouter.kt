@@ -41,6 +41,60 @@ data class ParsedGoal(
     val targetDate: String = ""
 )
 
+data class ScheduleBlockMatch(
+    val title: String,
+    val startTime: String,
+    val endTime: String,
+    val category: String = "Deep Work"
+)
+
+data class PersonMatch(
+    val name: String,
+    val relationType: String = "Friend",
+    val phone: String = ""
+)
+
+data class HydrationMatch(
+    val amountMl: Int
+)
+
+data class SleepMatch(
+    val bedtime: String,
+    val waketime: String,
+    val durationText: String,
+    val qualityRating: Int = 4,
+    val qualityLabel: String = "Restful"
+)
+
+data class MoodMatch(
+    val mood: String,
+    val energyLevel: String = "Medium",
+    val note: String = ""
+)
+
+data class HabitMatch(
+    val name: String,
+    val frequency: String = "Daily",
+    val reminderTime: String = "08:00 AM",
+    val category: String = "Health"
+)
+
+data class KnowledgeMatch(
+    val title: String,
+    val content: String,
+    val category: String = "Personal Profile"
+)
+
+data class CaptureMatch(
+    val noteText: String,
+    val categoryTag: String = "General"
+)
+
+data class RuleMatch(
+    val ruleText: String,
+    val enforcementLevel: String = "Strict"
+)
+
 object DexterIntentRouter {
 
     fun stripWakeWord(input: String): String {
@@ -125,7 +179,12 @@ object DexterIntentRouter {
             return queryIntent
         }
 
-        // 3. Daily Briefing
+        // 3. Daily Briefing & Evening Summary
+        if (lower.contains("evening summary") || lower.contains("end of day summary") || lower.contains("evening briefing") ||
+            lower.contains("wrap up the day") || lower.contains("close out today")) {
+            return ParsedIntent("EVENING_SUMMARY")
+        }
+
         if (lower.contains("briefing") || lower.contains("morning summary") || lower == "daily summary" ||
             lower.contains("start briefing") || lower.contains("read briefing") || lower.contains("read my briefing") ||
             lower.contains("what does my day look like") || lower.contains("what is my day like")) {
@@ -324,6 +383,147 @@ object DexterIntentRouter {
             return ParsedIntent(
                 intent = "CREATE_PROJECT",
                 parameters = params
+            )
+        }
+
+        // 11e. Segment 7: Time & Schedule (Daily Timetable)
+        val scheduleMatch = extractScheduleBlock(text)
+        if (scheduleMatch != null) {
+            return ParsedIntent(
+                intent = "CREATE_SCHEDULE_BLOCK",
+                parameters = mapOf(
+                    "title" to scheduleMatch.title,
+                    "start_time" to scheduleMatch.startTime,
+                    "end_time" to scheduleMatch.endTime,
+                    "category" to scheduleMatch.category
+                )
+            )
+        }
+
+        // 11f. Segment 8: People & Relationships
+        val personMatch = extractPerson(text)
+        if (personMatch != null) {
+            return ParsedIntent(
+                intent = "CREATE_PERSON",
+                parameters = mapOf(
+                    "name" to personMatch.name,
+                    "relation_type" to personMatch.relationType,
+                    "phone" to personMatch.phone
+                )
+            )
+        }
+        val interactionMatch = extractInteraction(text)
+        if (interactionMatch != null) {
+            return ParsedIntent(
+                intent = "LOG_INTERACTION",
+                parameters = mapOf(
+                    "person" to interactionMatch.first,
+                    "note" to interactionMatch.second,
+                    "interaction_type" to interactionMatch.third
+                )
+            )
+        }
+
+        // 11g. Segment 9: Health & Wellbeing (Hydration, Sleep, Mood)
+        val hydrationMatch = extractHydration(text)
+        if (hydrationMatch != null) {
+            return ParsedIntent(
+                intent = "LOG_HYDRATION",
+                parameters = mapOf("amount_ml" to hydrationMatch.amountMl)
+            )
+        }
+
+        val sleepMatch = extractSleep(text)
+        if (sleepMatch != null) {
+            return ParsedIntent(
+                intent = "LOG_SLEEP",
+                parameters = mapOf(
+                    "bedtime" to sleepMatch.bedtime,
+                    "waketime" to sleepMatch.waketime,
+                    "duration_text" to sleepMatch.durationText,
+                    "quality_rating" to sleepMatch.qualityRating,
+                    "quality_label" to sleepMatch.qualityLabel
+                )
+            )
+        }
+
+        val moodMatch = extractMood(text)
+        if (moodMatch != null) {
+            return ParsedIntent(
+                intent = "LOG_MOOD",
+                parameters = mapOf(
+                    "mood" to moodMatch.mood,
+                    "energy_level" to moodMatch.energyLevel,
+                    "note" to moodMatch.note
+                )
+            )
+        }
+
+        // 11h. Segment 10: Habits & Streaks
+        val completeHabitMatch = extractCompleteHabit(text)
+        if (completeHabitMatch != null) {
+            return ParsedIntent(
+                intent = "COMPLETE_HABIT",
+                parameters = mapOf("name" to completeHabitMatch)
+            )
+        }
+
+        val habitMatch = extractHabit(text)
+        if (habitMatch != null) {
+            return ParsedIntent(
+                intent = "CREATE_HABIT",
+                parameters = mapOf(
+                    "name" to habitMatch.name,
+                    "frequency" to habitMatch.frequency,
+                    "reminder_time" to habitMatch.reminderTime,
+                    "category" to habitMatch.category
+                )
+            )
+        }
+
+        // 11i. Segment 11: Reading & Knowledge Vault (Memory)
+        val knowledgeMatch = extractKnowledgeVault(text)
+        if (knowledgeMatch != null) {
+            return ParsedIntent(
+                intent = "SAVE_KNOWLEDGE",
+                parameters = mapOf(
+                    "title" to knowledgeMatch.title,
+                    "content" to knowledgeMatch.content,
+                    "category" to knowledgeMatch.category
+                )
+            )
+        }
+
+        // 11j. Segment 12: Data Gathering & Raw Intake Hub
+        val captureMatch = extractIntakeCapture(text)
+        if (captureMatch != null) {
+            return ParsedIntent(
+                intent = "CAPTURE_INTAKE",
+                parameters = mapOf(
+                    "note_text" to captureMatch.noteText,
+                    "category_tag" to captureMatch.categoryTag
+                )
+            )
+        }
+
+        // 11k. Segment 13: Attention & Priority Feed
+        val ackAlertMatch = extractAttentionAcknowledge(text)
+        if (ackAlertMatch != null) {
+            return ParsedIntent(
+                intent = "ACKNOWLEDGE_ATTENTION",
+                parameters = mapOf("alert_id" to ackAlertMatch)
+            )
+        }
+
+        // 11l. Segment 15: Safety & System Rules
+        val ruleMatch = extractSystemRule(text)
+        if (ruleMatch != null) {
+            return ParsedIntent(
+                intent = "CREATE_RULE",
+                parameters = mapOf(
+                    "rule_text" to ruleMatch.ruleText,
+                    "enforcement_level" to ruleMatch.enforcementLevel
+                )
             )
         }
 
@@ -898,6 +1098,64 @@ object DexterIntentRouter {
             return ParsedIntent("LIST_PROJECTS")
         }
 
+        // 7b. Schedule block query: "what is scheduled", "show schedule blocks", "show timetable"
+        if (cleanLower.contains("timetable") || cleanLower.contains("schedule block") || cleanLower.contains("daily timetable")) {
+            return ParsedIntent("LIST_SCHEDULE")
+        }
+
+        // 8. People queries: "who are my contacts", "list people", "show contacts", "list friends"
+        if (cleanLower.contains(Regex("\\b(contacts?|people|friends?|colleagues?)\\b")) && !cleanLower.contains("call ") && !cleanLower.contains("email ") && !cleanLower.contains("add ")) {
+            return ParsedIntent("LIST_PEOPLE")
+        }
+
+        // 9. Health & Wellbeing queries
+        if (cleanLower.contains("water") || cleanLower.contains("hydration")) {
+            return ParsedIntent("GET_HYDRATION")
+        }
+        if (cleanLower.contains("sleep") && (cleanLower.contains("how") || cleanLower.contains("show") || cleanLower.contains("list") || cleanLower.contains("history"))) {
+            return ParsedIntent("LIST_SLEEP")
+        }
+        if (cleanLower.contains("mood") && (cleanLower.contains("how") || cleanLower.contains("show") || cleanLower.contains("list") || cleanLower.contains("history"))) {
+            return ParsedIntent("LIST_MOODS")
+        }
+
+        // 10. Habit queries
+        if (cleanLower.contains(Regex("\\b(habits?|streaks?)\\b"))) {
+            return ParsedIntent("LIST_HABITS")
+        }
+
+        // 11. Knowledge Vault queries
+        val vaultSearchMatch = Pattern.compile("^(?:what did i note about|search vault for|search memory for|what is my|where is my)\\s+(.+)$", Pattern.CASE_INSENSITIVE).matcher(text.trim())
+        if (vaultSearchMatch.find()) {
+            val q = vaultSearchMatch.group(1)?.trim()?.removeSuffix("?") ?: ""
+            if (q.isNotBlank()) {
+                return ParsedIntent("QUERY_KNOWLEDGE", parameters = mapOf("query" to q))
+            }
+        }
+        if (cleanLower.contains("knowledge vault") || cleanLower == "show vault" || cleanLower == "list vault") {
+            return ParsedIntent("QUERY_KNOWLEDGE", parameters = mapOf("query" to ""))
+        }
+
+        // 12. Intake Hub queries
+        if (cleanLower.contains("intake") || cleanLower.contains("raw capture") || cleanLower.contains("unprocessed")) {
+            return ParsedIntent("LIST_INTAKE")
+        }
+
+        // 13. Attention & Alerts queries
+        if (cleanLower.contains("attention") || cleanLower.contains(Regex("\\b(alerts?|priority feed)\\b"))) {
+            return ParsedIntent("LIST_ATTENTION")
+        }
+
+        // 15. Rules queries
+        if (cleanLower.contains("rules") || cleanLower.contains("safety rules") || cleanLower.contains("system rules")) {
+            return ParsedIntent("LIST_RULES")
+        }
+
+        // 16. Audit queries
+        if (cleanLower.contains("audit") || cleanLower.contains("action history") || cleanLower.contains("activity log")) {
+            return ParsedIntent("LIST_AUDIT")
+        }
+
         // 7. Daily briefing queries: "what do i need to know today", "what's my summary"
         if (cleanLower.contains(Regex("\\b(briefing|morning summary|daily summary|summary|schedule)\\b"))) {
             return ParsedIntent("DAILY_BRIEFING")
@@ -1264,6 +1522,182 @@ object DexterIntentRouter {
                     return Pair(title.replaceFirstChar { it.uppercase() }, priority)
                 }
             }
+        }
+        return null
+    }
+
+    // -------------------------------------------------------------
+    // Additional Segment Extractors (Segments 7, 8, 9, 10, 11, 12, 13, 15)
+    // -------------------------------------------------------------
+
+    fun extractScheduleBlock(text: String): ScheduleBlockMatch? {
+        val trimmed = text.trim()
+        val p1 = Pattern.compile("^(?:schedule|book|block)\\s+(.+?)\\s+(?:from\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)\\s+(?:to|-|until)\\s+(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p1.find()) {
+            val title = p1.group(1)?.trim()?.replaceFirstChar { it.uppercase() } ?: "Schedule Block"
+            val start = p1.group(2)?.trim()?.uppercase() ?: "09:00 AM"
+            val end = p1.group(3)?.trim()?.uppercase() ?: "10:00 AM"
+            val category = inferScheduleCategory(title)
+            return ScheduleBlockMatch(title = title, startTime = start, endTime = end, category = category)
+        }
+        val p2 = Pattern.compile("^(?:block|schedule)\\s+(?:from\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)\\s+(?:to|-|until)\\s+(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)\\s+(?:for|on)\\s+(.+)$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p2.find()) {
+            val start = p2.group(1)?.trim()?.uppercase() ?: "09:00 AM"
+            val end = p2.group(2)?.trim()?.uppercase() ?: "10:00 AM"
+            val title = p2.group(3)?.trim()?.replaceFirstChar { it.uppercase() } ?: "Deep Work"
+            val category = inferScheduleCategory(title)
+            return ScheduleBlockMatch(title = title, startTime = start, endTime = end, category = category)
+        }
+        return null
+    }
+
+    private fun inferScheduleCategory(title: String): String {
+        val lower = title.lowercase()
+        return when {
+            lower.contains("meeting") || lower.contains("call") || lower.contains("sync") -> "Meeting"
+            lower.contains("workout") || lower.contains("gym") || lower.contains("run") -> "Health"
+            lower.contains("study") || lower.contains("read") || lower.contains("learning") -> "Learning"
+            else -> "Deep Work"
+        }
+    }
+
+    fun extractPerson(text: String): PersonMatch? {
+        val trimmed = text.trim()
+        val p = Pattern.compile("^(?:add|save|create)\\s+(?:contact|person|friend)\\s+([^,]+?)(?:\\s+(?:as|relation)\\s+(friend|colleague|family|doctor|client|mentor|partner))?(?:\\s+(?:with phone|phone|mobile)\\s+(\\d+))?$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p.find()) {
+            val name = p.group(1)?.trim()?.replaceFirstChar { it.uppercase() } ?: return null
+            val rel = p.group(2)?.trim()?.replaceFirstChar { it.uppercase() } ?: "Friend"
+            val phone = p.group(3)?.trim() ?: ""
+            return PersonMatch(name = name, relationType = rel, phone = phone)
+        }
+        return null
+    }
+
+    fun extractInteraction(text: String): Triple<String, String, String>? {
+        val trimmed = text.trim()
+        val lower = trimmed.lowercase()
+        val p = Pattern.compile("^(?:talked to|spoke with|met with|called|had a call with|logged meeting with)\\s+([^,]+?)(?:\\s+(?:about|regarding|for|discussed)\\s+(.+))?$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p.find()) {
+            val person = p.group(1)?.trim()?.replaceFirstChar { it.uppercase() } ?: return null
+            val topic = p.group(2)?.trim() ?: "Conversation"
+            val type = if (lower.contains("call") || lower.contains("called")) "Call" else "Meeting"
+            return Triple(person, topic, type)
+        }
+        return null
+    }
+
+    fun extractHydration(text: String): HydrationMatch? {
+        val trimmed = text.trim()
+        val glassPattern = Pattern.compile("^(?:drank|log|logged|drink|had)\\s+(\\d+)?\\s*(?:glass|glasses)\\s*(?:of\\s+)?water$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (glassPattern.find()) {
+            val count = glassPattern.group(1)?.toIntOrNull() ?: 1
+            return HydrationMatch(amountMl = count * 250)
+        }
+        val literPattern = Pattern.compile("^(?:drank|log|logged|drink|had)\\s+(\\d+(?:\\.\\d+)?)\\s*(?:liter|liters|l)\\s*(?:of\\s+)?water$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (literPattern.find()) {
+            val liters = literPattern.group(1)?.toDoubleOrNull() ?: 1.0
+            return HydrationMatch(amountMl = (liters * 1000).toInt())
+        }
+        val mlPattern = Pattern.compile("^(?:drank|log|logged|drink|had)\\s+(\\d+)\\s*(?:ml|milliliters?)\\s*(?:of\\s+)?water$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (mlPattern.find()) {
+            val ml = mlPattern.group(1)?.toIntOrNull() ?: 250
+            return HydrationMatch(amountMl = ml)
+        }
+        return null
+    }
+
+    fun extractSleep(text: String): SleepMatch? {
+        val trimmed = text.trim()
+        val p1 = Pattern.compile("^(?:log|logged)\\s+sleep\\s+(?:from\\s+)?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)\\s+(?:to|-)\\s+(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)(?:\\s+(restful|deep|disturbed|light))?$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p1.find()) {
+            val bed = p1.group(1)?.trim()?.uppercase() ?: "11:00 PM"
+            val wake = p1.group(2)?.trim()?.uppercase() ?: "07:00 AM"
+            val quality = p1.group(3)?.trim()?.replaceFirstChar { it.uppercase() } ?: "Restful"
+            return SleepMatch(bedtime = bed, waketime = wake, durationText = "7h 30m", qualityRating = 4, qualityLabel = quality)
+        }
+        val p2 = Pattern.compile("^(?:slept|log sleep)\\s+(\\d+(?:\\.\\d+)?)\\s*hours?(?:\\s+(restful|deep|disturbed|light))?$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p2.find()) {
+            val hrs = p2.group(1)?.trim() ?: "7"
+            val quality = p2.group(2)?.trim()?.replaceFirstChar { it.uppercase() } ?: "Restful"
+            return SleepMatch(bedtime = "11:00 PM", waketime = "07:00 AM", durationText = "${hrs}h", qualityRating = 4, qualityLabel = quality)
+        }
+        return null
+    }
+
+    fun extractMood(text: String): MoodMatch? {
+        val trimmed = text.trim()
+        val p = Pattern.compile("^(?:log|logged|record)\\s+mood\\s+([^,]+?)(?:\\s+energy\\s+(high|medium|low))?$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p.find()) {
+            val mood = p.group(1)?.trim()?.replaceFirstChar { it.uppercase() } ?: "Good"
+            val energy = p.group(2)?.trim()?.replaceFirstChar { it.uppercase() } ?: "Medium"
+            return MoodMatch(mood = mood, energyLevel = energy)
+        }
+        val pFeeling = Pattern.compile("^(?:feeling|i am feeling)\\s+(great|tired|happy|sad|stressed|calm|exhausted|awesome|energetic|anxious|motivated)$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (pFeeling.find()) {
+            val mood = pFeeling.group(1)?.trim()?.replaceFirstChar { it.uppercase() } ?: "Reflective"
+            val energy = if (mood in listOf("Tired", "Exhausted", "Sad")) "Low" else "High"
+            return MoodMatch(mood = mood, energyLevel = energy)
+        }
+        return null
+    }
+
+    fun extractCompleteHabit(text: String): String? {
+        val trimmed = text.trim()
+        val p = Pattern.compile("^(?:complete|completed|finish|finished|mark)\\s+habit\\s+([^,]+?)(?:\\s+(?:as\\s+)?(?:done|complete|finished))?$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p.find()) {
+            return p.group(1)?.trim()?.replaceFirstChar { it.uppercase() }
+        }
+        return null
+    }
+
+    fun extractHabit(text: String): HabitMatch? {
+        val trimmed = text.trim()
+        val p = Pattern.compile("^(?:create|start|add)\\s+habit\\s+([^,]+?)(?:\\s+(daily|weekly))?(?:\\s+at\\s+(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?))?$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p.find()) {
+            val name = p.group(1)?.trim()?.replaceFirstChar { it.uppercase() } ?: return null
+            val freq = p.group(2)?.trim()?.replaceFirstChar { it.uppercase() } ?: "Daily"
+            val time = p.group(3)?.trim()?.uppercase() ?: "08:00 AM"
+            return HabitMatch(name = name, frequency = freq, reminderTime = time)
+        }
+        return null
+    }
+
+    fun extractKnowledgeVault(text: String): KnowledgeMatch? {
+        val trimmed = text.trim()
+        val p = Pattern.compile("^(?:remember that|save note|store note|save memory|vault remember)\\s+(.+)$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p.find()) {
+            val content = p.group(1)?.trim() ?: return null
+            val title = if (content.length > 30) content.take(30).trim() + "..." else content
+            return KnowledgeMatch(title = title, content = content)
+        }
+        return null
+    }
+
+    fun extractIntakeCapture(text: String): CaptureMatch? {
+        val trimmed = text.trim()
+        val p = Pattern.compile("^(?:capture note|quick capture|intake note|capture idea|raw capture)\\s+(.+)$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p.find()) {
+            val note = p.group(1)?.trim() ?: return null
+            return CaptureMatch(noteText = note)
+        }
+        return null
+    }
+
+    fun extractAttentionAcknowledge(text: String): Long? {
+        val trimmed = text.trim()
+        val p = Pattern.compile("^(?:acknowledge|dismiss|clear)\\s+alert\\s+#?(\\d+)$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p.find()) {
+            return p.group(1)?.toLongOrNull()
+        }
+        return null
+    }
+
+    fun extractSystemRule(text: String): RuleMatch? {
+        val trimmed = text.trim()
+        val p = Pattern.compile("^(?:add|create)\\s+rule\\s+(.+)$", Pattern.CASE_INSENSITIVE).matcher(trimmed)
+        if (p.find()) {
+            val rule = p.group(1)?.trim() ?: return null
+            return RuleMatch(ruleText = rule)
         }
         return null
     }
