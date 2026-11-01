@@ -52,14 +52,14 @@ jobs:
       - name: Build Debug APK
         run: |
           mkdir -p app/src/main/assets/models app/src/main/assets/needle
-          if ! ./gradlew assembleDebug --no-daemon --stacktrace > build.log 2>&1; then
-            echo "### ❌ Build Debug APK Failed" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -n 80 build.log >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            cat build.log
-            exit 1
-          fi
+          ./gradlew assembleDebug --no-daemon --stacktrace > build.log 2>&1
+
+      - name: Upload Build Log on Failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-log
+          path: build.log
 
       - name: Verify Debug APK Exists
         run: |
