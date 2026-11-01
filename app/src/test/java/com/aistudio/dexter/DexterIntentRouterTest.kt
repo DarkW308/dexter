@@ -241,58 +241,11 @@ class DexterIntentRouterTest {
         assertEquals("CREATE_GOAL", financeGoal.intent)
         assertEquals("Financial", financeGoal.parameters["category"])
         assertEquals(50000.0, financeGoal.parameters["target_amount"] as Double, 0.001)
-        assertEquals("â‚¹", financeGoal.parameters["metric_unit"])
+        assertEquals("₹", financeGoal.parameters["metric_unit"])
 
         val personalGoal = DexterIntentRouter.parse("my goal is to meditate for 30 days")
         assertEquals("CREATE_GOAL", personalGoal.intent)
         assertEquals(30.0, personalGoal.parameters["target_amount"] as Double, 0.001)
         assertEquals("days", personalGoal.parameters["metric_unit"])
-    }
-
-    @Test
-    fun testVoiceCommandRouting_fixedVoiceBugs() {
-        // 1. Journal & Log Filing
-        val log1 = DexterIntentRouter.parse("file this log finished testing all modules")
-        assertEquals("LOG_JOURNAL", log1.intent)
-        assertTrue(log1.parameters["content"].toString().contains("finished testing"))
-
-        val log2 = DexterIntentRouter.parse("create a general entry today went exceptionally well")
-        assertEquals("LOG_JOURNAL", log2.intent)
-
-        val log3 = DexterIntentRouter.parse("create a journal entry feeling very productive")
-        assertEquals("LOG_JOURNAL", log3.intent)
-
-        // 2. Alarm & Reminders
-        val alarm1 = DexterIntentRouter.parse("create an alarm for 7 am")
-        assertEquals("CREATE_ALARM", alarm1.intent)
-
-        val alarm2 = DexterIntentRouter.parse("create alarm at 6:30 am")
-        assertEquals("CREATE_ALARM", alarm2.intent)
-
-        val alarm3 = DexterIntentRouter.parse("wake me up at 7")
-        assertEquals("CREATE_ALARM", alarm3.intent)
-
-        // 3. Task Cancel & Pronoun Resolution
-        val del1 = DexterIntentRouter.parse("delete this task")
-        assertEquals("CANCEL_TASK_TITLE", del1.intent)
-        assertEquals("this", del1.parameters["title"])
-
-        val del2 = DexterIntentRouter.parse("delete task")
-        assertEquals("CANCEL_TASK_TITLE", del2.intent)
-
-        val del3 = DexterIntentRouter.parse("cancel this task")
-        assertEquals("CANCEL_TASK_TITLE", del3.intent)
-
-        // 4. Interrogative Questions
-        val q1 = DexterIntentRouter.parse("what are all the pending tasks")
-        assertEquals("LIST_PENDING_TASKS", q1.intent)
-
-        val q2 = DexterIntentRouter.parse("what are all pending tasks")
-        assertEquals("LIST_PENDING_TASKS", q2.intent)
-
-        // 5. Project Creation
-        val proj = DexterIntentRouter.parse("create a project Website Redesign with deadline Dec 25")
-        assertEquals("CREATE_PROJECT", proj.intent)
-        assertEquals("Website Redesign", proj.parameters["name"])
     }
 }

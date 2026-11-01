@@ -143,7 +143,6 @@ class MainActivity : AppCompatActivity() {
         // Eagerly refresh data and service status
         try { loadDashboardData() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in loadDashboardData", e) }
         try { updateServiceStatus() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in updateServiceStatus", e) }
-        try { checkInitialModelSetup() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in checkInitialModelSetup", e) }
 
         try {
             if (intent.getBooleanExtra("action_open_voice", false)) {
@@ -264,7 +263,7 @@ class MainActivity : AppCompatActivity() {
             // Speaking State
             setVisualState(OrbVisualState.SPEAKING)
             binding.responseText.text = harnessResult.summaryText
-            binding.orbHintText.text = "Dexter responded (HarnessÂ²)"
+            binding.orbHintText.text = "Dexter responded (Harness²)"
 
             // Speak via TTS if initialized
             speechManager.speak(harnessResult.summaryText)
@@ -397,12 +396,12 @@ class MainActivity : AppCompatActivity() {
             isAlexaModeActive = !isAlexaModeActive
             DexterVoiceService.setAlexaMode(this, isAlexaModeActive)
             if (isAlexaModeActive) {
-                binding.alexaStatusBadge.text = "ðŸŸ¢ Active"
+                binding.alexaStatusBadge.text = "🟢 Active"
                 binding.alexaStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.status_live))
                 binding.btnToggleAlexaVoice.text = "Disable"
                 Toast.makeText(this, "Offline wake-word detector active: Say 'Hey Dexter', 'Dexter', or 'buddy'", Toast.LENGTH_SHORT).show()
             } else {
-                binding.alexaStatusBadge.text = "âšª Paused"
+                binding.alexaStatusBadge.text = "⚪ Paused"
                 binding.alexaStatusBadge.setTextColor(ContextCompat.getColor(this, R.color.dexter_on_surface_variant))
                 binding.btnToggleAlexaVoice.text = "Enable"
                 Toast.makeText(this, "Offline wake-word detector paused.", Toast.LENGTH_SHORT).show()
@@ -437,31 +436,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkInitialModelSetup() {
-        val prefs = getSharedPreferences("dexter_prefs", Context.MODE_PRIVATE)
-        val hasPrompted = prefs.getBoolean("has_prompted_models", false)
-        if (!hasPrompted && !ModelDownloadManager.getInstance(this).hasAnyModelInstalled()) {
-            prefs.edit().putBoolean("has_prompted_models", true).apply()
-            com.google.android.material.snackbar.Snackbar.make(
-                binding.root,
-                "Dexter offline AI models ready to download.",
-                com.google.android.material.snackbar.Snackbar.LENGTH_LONG
-            ).setAction("Download") {
-                ModelManagerDialog(this) { updateServiceStatus() }.show()
-            }.show()
-        }
-    }
-
     private fun updateServiceStatus() {
         lifecycleScope.launch {
             try {
-                val dm = ModelDownloadManager.getInstance(this@MainActivity)
-                val hasAnyModel = withContext(Dispatchers.IO) { dm.hasAnyModelInstalled() }
+                val isNeedleRunning = withContext(Dispatchers.IO) {
+                    try {
+                        val socket = java.net.Socket()
+                        socket.connect(java.net.InetSocketAddress("127.0.0.1", 8081), 250)
+                        socket.close()
+                        true
+                    } catch (e: Exception) {
+                        false
+                    }
+                }
                 val hasLayaModel = LayaEngine.getInstance(this@MainActivity).hasPhysicalModel()
                 if (::binding.isInitialized) {
-                    if (hasAnyModel || hasLayaModel) {
+                    if (isNeedleRunning) {
                         binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_live)
-                        binding.statusText.text = "AI Ready"
+                        binding.statusText.text = "Live"
+                        binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_live))
+                    } else if (hasLayaModel) {
+                        binding.statusDot.setBackgroundResource(R.drawable.bg_status_dot_live)
+                        binding.statusText.text = "Tier 2"
                         binding.statusText.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_live))
                     } else {
                         // Tier 1 Fast-Path is active even when neural weights aren't downloaded
@@ -485,21 +481,21 @@ class MainActivity : AppCompatActivity() {
                     val tasksText = "${briefing.pendingTasksCount} tasks pending"
                     val alarmsText = if (briefing.nextAlarmLabel != null) "1 reminder" else "0 reminders"
                     val rupeesSpent = briefing.todaySpentMinor / 100
-                    val expenseText = "â‚¹$rupeesSpent spent today"
+                    val expenseText = "₹$rupeesSpent spent today"
 
-                    binding.briefingMetricsText.text = "$tasksText Â· $alarmsText Â· $expenseText"
+                    binding.briefingMetricsText.text = "$tasksText · $alarmsText · $expenseText"
 
                     if (briefing.topTaskTitle != null) {
-                        binding.nextTaskText.text = "ðŸ“‹ Next: ${briefing.topTaskTitle}"
+                        binding.nextTaskText.text = "📋 Next: ${briefing.topTaskTitle}"
                     } else {
-                        binding.nextTaskText.text = "ðŸ“‹ Next: No pending tasks"
+                        binding.nextTaskText.text = "📋 Next: No pending tasks"
                     }
 
                     if (briefing.nextAlarmLabel != null && briefing.nextAlarmTime != null) {
                         val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(briefing.nextAlarmTime * 1000))
-                        binding.nextAlarmText.text = "â° $timeStr â€“ ${briefing.nextAlarmLabel}"
+                        binding.nextAlarmText.text = "⏰ $timeStr – ${briefing.nextAlarmLabel}"
                     } else {
-                        binding.nextAlarmText.text = "â° Next: No upcoming alarms"
+                        binding.nextAlarmText.text = "⏰ Next: No upcoming alarms"
                     }
                 }
             } catch (e: Exception) {
@@ -529,13 +525,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun showMoreOptionsDialog() {
         val options = arrayOf(
-            "ðŸ§  Edge AI Models & Downloader",
-            "ðŸ”¬ Voice & Laya Pipeline Lab (Accents & Languages)",
-            "ðŸŽ¯ Goals & Projects",
-            "â° Reminders & Alarms",
-            "ðŸ”‹ Request Battery Whitelist (Alexa Mode)",
-            "âš™ï¸ System & Needle Status",
-            "ðŸ“¦ Database Diagnostics"
+            "🧠 Edge AI Models & Downloader",
+            "🔬 Voice & Laya Pipeline Lab (Accents & Languages)",
+            "🎯 Goals & Projects",
+            "⏰ Reminders & Alarms",
+            "🔋 Request Battery Whitelist (Alexa Mode)",
+            "⚙️ System & Needle Status",
+            "📦 Database Diagnostics"
         )
 
         AlertDialog.Builder(this)
@@ -560,21 +556,21 @@ class MainActivity : AppCompatActivity() {
             val goals = withContext(Dispatchers.IO) { repository.listGoals() }
             val projects = withContext(Dispatchers.IO) { repository.listProjects() }
 
-            val goalLines = goals.map { "ðŸŽ¯ [Goal] ${it.name} (${it.status})" }
-            val projectLines = projects.map { "ðŸ“ [Project] ${it.name} (${it.status}) - ${it.taskCount} milestones (${it.progressPercent}%)" }
+            val goalLines = goals.map { "🎯 [Goal] ${it.name} (${it.status})" }
+            val projectLines = projects.map { "📁 [Project] ${it.name} (${it.status}) - ${it.taskCount} milestones (${it.progressPercent}%)" }
             val allItems = (goalLines + projectLines).toTypedArray()
 
             AlertDialog.Builder(this@MainActivity)
                 .setTitle("Goals & Projects")
                 .setItems(if (allItems.isNotEmpty()) allItems else arrayOf("No active goals or projects."), null)
                 .setPositiveButton("Close", null)
-                .setNeutralButton("ðŸ“ Projects") { _, _ ->
+                .setNeutralButton("📁 Projects") { _, _ ->
                     val intent = Intent(this@MainActivity, SegmentDetailActivity::class.java).apply {
                         putExtra(SegmentDetailActivity.EXTRA_SEGMENT_NUMBER, 2)
                     }
                     startActivity(intent)
                 }
-                .setNegativeButton("ðŸŽ¯ Goals") { _, _ ->
+                .setNegativeButton("🎯 Goals") { _, _ ->
                     val intent = Intent(this@MainActivity, SegmentDetailActivity::class.java).apply {
                         putExtra(SegmentDetailActivity.EXTRA_SEGMENT_NUMBER, 3)
                     }
@@ -589,14 +585,14 @@ class MainActivity : AppCompatActivity() {
             val alarms = withContext(Dispatchers.IO) { repository.listAlarms() }
             val items = alarms.map {
                 val timeStr = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(it.alarmTime * 1000))
-                "â° $timeStr â€“ ${it.label}"
+                "⏰ $timeStr – ${it.label}"
             }.toTypedArray()
 
             AlertDialog.Builder(this@MainActivity)
                 .setTitle("Active Reminders (${alarms.size})")
                 .setItems(if (items.isNotEmpty()) items else arrayOf("No upcoming reminders."), null)
                 .setPositiveButton("Close", null)
-                .setNeutralButton("â° Set New Alarm") { _, _ ->
+                .setNeutralButton("⏰ Set New Alarm") { _, _ ->
                     showCreateAlarmClockDialog()
                 }
                 .show()
@@ -606,13 +602,13 @@ class MainActivity : AppCompatActivity() {
     private fun showCreateAlarmClockDialog() {
         val now = Calendar.getInstance()
         val presets = arrayOf(
-            "âš¡ In 15 minutes",
-            "â³ In 30 minutes",
-            "â±ï¸ In 1 hour",
-            "ðŸŒ… Tomorrow 7:00 AM",
-            "â˜€ï¸ Tomorrow 8:00 AM",
-            "ðŸŒ™ Tonight 10:00 PM",
-            "ðŸ•’ Custom Clock Picker..."
+            "⚡ In 15 minutes",
+            "⏳ In 30 minutes",
+            "⏱️ In 1 hour",
+            "🌅 Tomorrow 7:00 AM",
+            "☀️ Tomorrow 8:00 AM",
+            "🌙 Tonight 10:00 PM",
+            "🕒 Custom Clock Picker..."
         )
 
         AlertDialog.Builder(this)
@@ -698,14 +694,14 @@ class MainActivity : AppCompatActivity() {
 
         val message = """
             Dexter Engine Status:
-            â€¢ Voice Engine: Alexa Mode (Low-Power VAD)
-            â€¢ Localhost Daemon: Needle 3 on :8081
-            â€¢ Fast-Path Router: Active (â‰¤ 5ms)
-            â€¢ Database: SQLite WAL mode (${dbSizeKb} KB)
-            â€¢ Background Service: Foreground Persistent
+            • Voice Engine: Alexa Mode (Low-Power VAD)
+            • Localhost Daemon: Needle 3 on :8081
+            • Fast-Path Router: Active (≤ 5ms)
+            • Database: SQLite WAL mode (${dbSizeKb} KB)
+            • Background Service: Foreground Persistent
             
             Battery Philosophy:
-            Dexter consumes â‰¤ 3% per hour in standby Alexa mode.
+            Dexter consumes ≤ 3% per hour in standby Alexa mode.
         """.trimIndent()
 
         AlertDialog.Builder(this)
@@ -725,7 +721,7 @@ class MainActivity : AppCompatActivity() {
             val dbSizeKb = if (dbFile.exists()) dbFile.length() / 1024 else 0
 
             val lines = diagnostics.map { (segment, count) ->
-                "âœ“ $segment: $count items"
+                "✓ $segment: $count items"
             }.toTypedArray()
 
             AlertDialog.Builder(this@MainActivity)
