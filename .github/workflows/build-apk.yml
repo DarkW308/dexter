@@ -61,6 +61,17 @@ jobs:
           name: gradle-build-log
           path: build.log
 
+      - name: Publish Failure Log to GitHub Releases
+        if: failure()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-failure
+          name: Build Failure Log
+          body: "Compilation failed on runner. See attached build.log"
+          files: build.log
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Verify Debug APK Exists
         run: |
           if [ ! -f app/build/outputs/apk/debug/app-debug.apk ]; then
