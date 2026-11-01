@@ -960,7 +960,7 @@ object DexterIntentRouter {
         return cal.timeInMillis
     }
 
-    private fun isActionableImperative(lower: String): Boolean {
+    fun isActionableImperative(lower: String): Boolean {
         if (lower.startsWith("complete ") || lower.startsWith("finish ") || lower.startsWith("cancel ") || lower.startsWith("mark ")) {
             if (lower.contains("task") || lower.contains("alarm") || lower.contains("reminder") || lower.contains("milestone") || lower.contains("this") || lower.contains("done")) {
                 return false
