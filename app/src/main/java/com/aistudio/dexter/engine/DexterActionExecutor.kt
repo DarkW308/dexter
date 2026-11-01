@@ -1101,12 +1101,13 @@ class DexterActionExecutor(
             // Segment 14: Daily Briefings & Evening Summaries
             "EVENING_SUMMARY" -> {
                 val report = repository.getComprehensiveEndOfDaySummary()
+                val totalTasks = report.completedTasksCount + report.pendingTasksCount
                 val msg = buildString {
                     append("Evening summary for ${report.dateString}: ")
-                    append("Completed ${report.completedTasksCount} of ${report.totalTasksToday} tasks today. ")
-                    append("Expenditure: ₹${report.totalSpentRupees.toInt()}. ")
-                    append("Hydration: ${report.hydrationTotalMl} ml. ")
-                    append(report.closingVerdict)
+                    append("Completed ${report.completedTasksCount} of $totalTasks tasks today. ")
+                    append("Expenditure: ${report.formattedSpent}. ")
+                    append("Hydration: ${report.waterMl} ml. ")
+                    append(report.motivationalClosing)
                 }
                 ActionResult(
                     success = true,
