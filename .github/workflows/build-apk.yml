@@ -50,7 +50,16 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          mkdir -p app/src/main/assets/models app/src/main/assets/needle
+          if ! ./gradlew assembleDebug --no-daemon --stacktrace > build.log 2>&1; then
+            echo "### ❌ Build Debug APK Failed" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 80 build.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat build.log
+            exit 1
+          fi
 
       - name: Verify Debug APK Exists
         run: |
