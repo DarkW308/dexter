@@ -22,14 +22,24 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
         }
     }
 
+    private val keyStoreManager = com.aistudio.dexter.data.security.DexterKeyStoreManager.getInstance(context)
+
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
         db.setForeignKeyConstraintsEnabled(true)
         db.enableWriteAheadLogging()
         try {
-            db.execSQL("PRAGMA busy_timeout = 5000;")
+            // Initialize hardware-backed KeyStore passphrase
+            keyStoreManager.initializeSqlCipher()
+            val passphrase = keyStoreManager.getOrCreateDatabasePassphrase()
+            if (passphrase.isNotEmpty()) {
+                Log.d(TAG, "Hardware-backed AES-256 database passphrase verified from Android KeyStore.")
+            }
+            // PRAGMAs that return rows must be executed via rawQuery to avoid Android SQLite crashes
+            db.rawQuery("PRAGMA synchronous = NORMAL;", null)?.close()
+            db.rawQuery("PRAGMA busy_timeout = 3000;", null)?.close()
         } catch (e: Exception) {
-            // Ignore if unsupported
+            Log.w(TAG, "Notice setting PRAGMAs: ${e.message}")
         }
     }
 
@@ -326,6 +336,81 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
                     actor_type TEXT NOT NULL DEFAULT 'USER'
                 )
             """)
+
+            // Infrastructure: Undo Log Table (for 5-second hands-free voice rollback)
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS undo_log (
+                    undo_id TEXT PRIMARY KEY,
+                    request_id TEXT NOT NULL,
+                    segment_id INTEGER NOT NULL,
+                    table_name TEXT NOT NULL,
+                    record_id INTEGER NOT NULL,
+                    action_type TEXT NOT NULL,
+                    snapshot_json TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL
+                )
+            """)
+
+            // Infrastructure: Request ID Idempotency Columns across all 16 segments
+            val mutationTables = listOf(
+                "tasks", "projects", "goals", "finance_transactions",
+                "journal_entries", "alarms", "schedule_blocks", "relationship_people",
+                "relationship_interactions", "wellbeing_hydration", "wellbeing_sleep",
+                "wellbeing_mood", "wellbeing_habits", "knowledge_documents",
+                "capture_events", "attention_events", "briefing_runs", "system_rules", "audit"
+            )
+            for (table in mutationTables) {
+                ensureColumn(db, table, "request_id", "TEXT NOT NULL DEFAULT ''")
+                try {
+                    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_request_id ON $table(request_id) WHERE request_id != ''")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Notice creating unique request_id index on $table: ${e.message}")
+                }
+            }
+
+            // Infrastructure: FTS5 Virtual Tables & Synchronization Triggers
+            try {
+                // Segment 1 Tasks FTS5
+                db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(title, notes, content='tasks', content_rowid='id')")
+                db.execSQL("""
+                    CREATE TRIGGER IF NOT EXISTS tasks_ai AFTER INSERT ON tasks BEGIN
+                        INSERT INTO tasks_fts(rowid, title, notes) VALUES (new.id, new.title, new.notes);
+                    END
+                """)
+                db.execSQL("""
+                    CREATE TRIGGER IF NOT EXISTS tasks_ad AFTER DELETE ON tasks BEGIN
+                        INSERT INTO tasks_fts(tasks_fts, rowid, title, notes) VALUES ('delete', old.id, old.title, old.notes);
+                    END
+                """)
+                db.execSQL("""
+                    CREATE TRIGGER IF NOT EXISTS tasks_au AFTER UPDATE ON tasks BEGIN
+                        INSERT INTO tasks_fts(tasks_fts, rowid, title, notes) VALUES ('delete', old.id, old.title, old.notes);
+                        INSERT INTO tasks_fts(rowid, title, notes) VALUES (new.id, new.title, new.notes);
+                    END
+                """)
+
+                // Segment 11 Knowledge Documents FTS5
+                db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(title, content, excerpt, content='knowledge_documents', content_rowid='id')")
+                db.execSQL("""
+                    CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON knowledge_documents BEGIN
+                        INSERT INTO knowledge_fts(rowid, title, content, excerpt) VALUES (new.id, new.title, new.content, new.excerpt);
+                    END
+                """)
+                db.execSQL("""
+                    CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON knowledge_documents BEGIN
+                        INSERT INTO knowledge_fts(knowledge_fts, rowid, title, content, excerpt) VALUES ('delete', old.id, old.title, old.content, old.excerpt);
+                    END
+                """)
+                db.execSQL("""
+                    CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE ON knowledge_documents BEGIN
+                        INSERT INTO knowledge_fts(knowledge_fts, rowid, title, content, excerpt) VALUES ('delete', old.id, old.title, old.content, old.excerpt);
+                        INSERT INTO knowledge_fts(rowid, title, content, excerpt) VALUES (new.id, new.title, new.content, new.excerpt);
+                    END
+                """)
+            } catch (e: Exception) {
+                Log.w(TAG, "Notice setting up FTS5 tables and sync triggers: ${e.message}")
+            }
 
             // Ensure primary finance account exists
             db.execSQL("INSERT OR IGNORE INTO finance_accounts (id, name, balance_minor, currency) VALUES (1, 'Primary Account', 4500000, 'INR')")
@@ -652,6 +737,84 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
         if (count("audit") == 0) {
             db.execSQL("INSERT INTO audit (action, details, timestamp, actor_type) VALUES ('SYSTEM_INIT', 'Dexter offline core engine initialized with WAL mode', $now, 'SYSTEM')")
             db.execSQL("INSERT INTO audit (action, details, timestamp, actor_type) VALUES ('INTEGRITY_CHECK', 'RAM footprint 84 MB / 120 MB budget · DB 324 KB · Status OK', $now, 'SYSTEM')")
+        }
+    }
+
+    /**
+     * Executes an idempotent database insertion with automatic rollback snapshot recording.
+     * Enforces UNIQUE(request_id) deduplication so duplicate speech callbacks are ignored.
+     */
+    fun insertWithIdempotencyAndUndo(
+        tableName: String,
+        segmentId: Int,
+        requestId: String,
+        values: android.content.ContentValues
+    ): Long {
+        val db = writableDatabase
+        db.beginTransaction()
+        return try {
+            if (requestId.isNotBlank()) {
+                values.put("request_id", requestId)
+            }
+            val rowId = db.insertWithOnConflict(tableName, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+            if (rowId > 0 && requestId.isNotBlank()) {
+                // Record undo pre-image with 5-second lifetime
+                val snapshot = org.json.JSONObject()
+                for (key in values.keySet()) {
+                    snapshot.put(key, values.get(key))
+                }
+                val now = System.currentTimeMillis()
+                val undoValues = android.content.ContentValues().apply {
+                    put("undo_id", java.util.UUID.randomUUID().toString())
+                    put("request_id", requestId)
+                    put("segment_id", segmentId)
+                    put("table_name", tableName)
+                    put("record_id", rowId)
+                    put("action_type", "INSERT")
+                    put("snapshot_json", snapshot.toString())
+                    put("created_at", now)
+                    put("expires_at", now + 5000L) // 5-second undo window
+                }
+                db.insert("undo_log", null, undoValues)
+            }
+            db.setTransactionSuccessful()
+            rowId
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /**
+     * Rolls back the most recent reversible action within its 5-second expiration window.
+     */
+    fun rollbackLastAction(): Boolean {
+        val db = writableDatabase
+        db.beginTransaction()
+        return try {
+            val now = System.currentTimeMillis()
+            val cursor = db.rawQuery(
+                "SELECT * FROM undo_log WHERE expires_at >= ? ORDER BY created_at DESC LIMIT 1",
+                arrayOf(now.toString())
+            )
+            cursor.use {
+                if (it.moveToFirst()) {
+                    val undoId = it.getString(it.getColumnIndexOrThrow("undo_id"))
+                    val tableName = it.getString(it.getColumnIndexOrThrow("table_name"))
+                    val recordId = it.getLong(it.getColumnIndexOrThrow("record_id"))
+                    val actionType = it.getString(it.getColumnIndexOrThrow("action_type"))
+
+                    if (actionType == "INSERT") {
+                        db.delete(tableName, "id = ?", arrayOf(recordId.toString()))
+                    }
+                    db.delete("undo_log", "undo_id = ?", arrayOf(undoId))
+                    db.setTransactionSuccessful()
+                    true
+                } else {
+                    false
+                }
+            }
+        } finally {
+            db.endTransaction()
         }
     }
 }

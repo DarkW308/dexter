@@ -195,8 +195,7 @@ class DexterRepository(context: Context) {
     }
 
     // Segment 2: Projects & Milestones
-    fun createProject(name: String, description: String = "", deadline: String = "", colorHex: String = "#4FC3F7"): ProjectItem {
-        val db = dbHelper.writableDatabase
+    fun createProject(name: String, description: String = "", deadline: String = "", colorHex: String = "#4FC3F7", requestId: String = ""): ProjectItem {
         val values = ContentValues().apply {
             put("name", name.trim())
             put("title", name.trim())
@@ -207,10 +206,10 @@ class DexterRepository(context: Context) {
             put("progress_percent", 0)
             put("task_count", 0)
         }
-        val id = db.insert("projects", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("projects", 2, requestId, values)
         notifyDataChanged()
         return ProjectItem(
-            id = id,
+            id = if (id > 0) id else 1L,
             name = name.trim(),
             title = name.trim(),
             description = description.trim(),
@@ -301,14 +300,13 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createMilestone(projectId: Long, title: String): Long {
-        val db = dbHelper.writableDatabase
+    fun createMilestone(projectId: Long, title: String, requestId: String = ""): Long {
         val values = ContentValues().apply {
             put("project_id", projectId)
             put("title", title.trim())
             put("is_completed", 0)
         }
-        val id = db.insert("project_milestones", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("project_milestones", 2, requestId, values)
         updateProjectMilestoneStats(projectId)
         notifyDataChanged()
         return id
@@ -358,9 +356,9 @@ class DexterRepository(context: Context) {
         category: String = "Financial",
         targetAmount: Double = 0.0,
         targetDate: String = "",
-        metricUnit: String = "₹"
+        metricUnit: String = "₹",
+        requestId: String = ""
     ): GoalItem {
-        val db = dbHelper.writableDatabase
         val values = ContentValues().apply {
             put("title", name.trim())
             put("name", name.trim())
@@ -372,10 +370,10 @@ class DexterRepository(context: Context) {
             put("progress_percent", 0)
             put("status", "ACTIVE")
         }
-        val id = db.insert("goals", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("goals", 3, requestId, values)
         notifyDataChanged()
         return GoalItem(
-            id = id,
+            id = if (id > 0) id else 1L,
             name = name.trim(),
             title = name.trim(),
             category = category.trim(),
@@ -495,8 +493,7 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createAlarm(alarmTime: Long, label: String, repeatDays: String = "Mon, Wed, Fri", vibrate: Boolean = true): Long {
-        val db = dbHelper.writableDatabase
+    fun createAlarm(alarmTime: Long, label: String, repeatDays: String = "Mon, Wed, Fri", vibrate: Boolean = true, requestId: String = ""): Long {
         val values = ContentValues().apply {
             put("alarm_time", alarmTime)
             put("label", label.trim().ifEmpty { "Alarm" })
@@ -504,7 +501,7 @@ class DexterRepository(context: Context) {
             put("is_enabled", 1)
             put("vibrate", if (vibrate) 1 else 0)
         }
-        val id = db.insert("alarms", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("alarms", 6, requestId, values)
         notifyDataChanged()
         return id
     }
@@ -589,8 +586,7 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createScheduleBlock(title: String, startTime: String, endTime: String, category: String, colorHex: String, location: String = ""): Long {
-        val db = dbHelper.writableDatabase
+    fun createScheduleBlock(title: String, startTime: String, endTime: String, category: String, colorHex: String, location: String = "", requestId: String = ""): Long {
         val values = ContentValues().apply {
             put("title", title.trim())
             put("start_time", startTime.trim())
@@ -599,7 +595,7 @@ class DexterRepository(context: Context) {
             put("color_hex", colorHex)
             put("location", location.trim())
         }
-        val id = db.insert("schedule_blocks", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("schedule_blocks", 7, requestId, values)
         notifyDataChanged()
         return id
     }
@@ -652,8 +648,7 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createPerson(name: String, relationType: String = "Friend", phone: String = "", email: String = "", birthday: String = "", notes: String = "", backstory: String = ""): Long {
-        val db = dbHelper.writableDatabase
+    fun createPerson(name: String, relationType: String = "Friend", phone: String = "", email: String = "", birthday: String = "", notes: String = "", backstory: String = "", requestId: String = ""): Long {
         val values = ContentValues().apply {
             put("name", name.trim())
             put("relation_type", relationType.trim())
@@ -664,7 +659,7 @@ class DexterRepository(context: Context) {
             put("backstory", backstory.trim())
             put("last_contacted_text", "Today")
         }
-        val id = db.insert("relationship_people", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("relationship_people", 8, requestId, values)
         notifyDataChanged()
         return id
     }
@@ -705,17 +700,16 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createInteraction(personId: Long, note: String, interactionType: String = "Call", date: String = "Today"): Long {
-        val db = dbHelper.writableDatabase
+    fun createInteraction(personId: Long, note: String, interactionType: String = "Call", date: String = "Today", requestId: String = ""): Long {
         val values = ContentValues().apply {
             put("person_id", personId)
             put("note", note.trim())
             put("interaction_type", interactionType)
             put("interaction_date", date)
         }
-        val id = db.insert("relationship_interactions", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("relationship_interactions", 8, requestId, values)
         val pVal = ContentValues().apply { put("last_contacted_text", date) }
-        db.update("relationship_people", pVal, "id = ?", arrayOf(personId.toString()))
+        dbHelper.writableDatabase.update("relationship_people", pVal, "id = ?", arrayOf(personId.toString()))
         notifyDataChanged()
         return id
     }
@@ -747,12 +741,11 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun logHydration(amountMl: Int = 250): Long {
-        val db = dbHelper.writableDatabase
+    fun logHydration(amountMl: Int = 250, requestId: String = ""): Long {
         val values = ContentValues().apply {
             put("amount_ml", amountMl)
         }
-        val id = db.insert("wellbeing_hydration", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("wellbeing_hydration", 9, requestId, values)
         notifyDataChanged()
         return id
     }
@@ -795,8 +788,7 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun logSleep(bedtime: String, waketime: String, durationText: String, qualityRating: Int, qualityLabel: String, notes: String): Long {
-        val db = dbHelper.writableDatabase
+    fun logSleep(bedtime: String, waketime: String, durationText: String, qualityRating: Int, qualityLabel: String, notes: String, requestId: String = ""): Long {
         val values = ContentValues().apply {
             put("bedtime", bedtime.trim())
             put("waketime", waketime.trim())
@@ -805,7 +797,7 @@ class DexterRepository(context: Context) {
             put("quality_label", qualityLabel.trim())
             put("notes", notes.trim())
         }
-        val id = db.insert("wellbeing_sleep", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("wellbeing_sleep", 9, requestId, values)
         notifyDataChanged()
         return id
     }
@@ -837,14 +829,13 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun logMood(mood: String, energyLevel: String = "High", note: String = ""): Long {
-        val db = dbHelper.writableDatabase
+    fun logMood(mood: String, energyLevel: String = "High", note: String = "", requestId: String = ""): Long {
         val values = ContentValues().apply {
             put("mood", mood.trim())
             put("energy_level", energyLevel)
             put("note", note.trim())
         }
-        val id = db.insert("wellbeing_mood", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("wellbeing_mood", 9, requestId, values)
         notifyDataChanged()
         return id
     }
@@ -887,9 +878,9 @@ class DexterRepository(context: Context) {
         reminderTime: String = "08:00 AM",
         habitType: String = "BUILD",
         category: String = "Health",
-        quitReason: String = ""
+        quitReason: String = "",
+        requestId: String = ""
     ): Long {
-        val db = dbHelper.writableDatabase
         val values = ContentValues().apply {
             put("name", name.trim())
             put("frequency", frequency.trim())
@@ -900,7 +891,7 @@ class DexterRepository(context: Context) {
             put("category", category.trim())
             put("quit_reason", quitReason.trim())
         }
-        val id = db.insert("wellbeing_habits", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("wellbeing_habits", 10, requestId, values)
         notifyDataChanged()
         return id
     }
@@ -1025,9 +1016,9 @@ class DexterRepository(context: Context) {
         source: String = "User Profile",
         fileType: String = "DOC",
         isCoreMemory: Boolean = false,
-        tags: String = ""
+        tags: String = "",
+        requestId: String = ""
     ): Long {
-        val db = dbHelper.writableDatabase
         val excerptText = if (content.length > 150) content.take(150) + "..." else content
         val values = ContentValues().apply {
             put("title", title.trim())
@@ -1040,7 +1031,7 @@ class DexterRepository(context: Context) {
             put("tags", tags.trim())
             put("chunk_count", 1.coerceAtLeast(content.length / 200))
         }
-        val id = db.insert("knowledge_documents", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("knowledge_documents", 11, requestId, values)
         notifyDataChanged()
         return id
     }
@@ -1151,10 +1142,10 @@ class DexterRepository(context: Context) {
         noteText: String,
         sourceType: String = "TEXT",
         categoryTag: String = "General",
-        scheduledWindow: String = "Ad-hoc"
+        scheduledWindow: String = "Ad-hoc",
+        requestId: String = ""
     ): Long {
         if (noteText.isBlank()) return 0L
-        val db = dbHelper.writableDatabase
         val values = ContentValues().apply {
             put("note_text", noteText.trim())
             put("status", "UNPROCESSED")
@@ -1163,7 +1154,7 @@ class DexterRepository(context: Context) {
             put("scheduled_window", scheduledWindow)
             put("created_at", System.currentTimeMillis())
         }
-        val id = db.insert("capture_events", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("capture_events", 12, requestId, values)
         logAudit("DATA_INTAKE_CAPTURED", "Source: $sourceType | Window: $scheduledWindow | Text: ${noteText.take(40)}")
         notifyDataChanged()
         return id
@@ -1457,10 +1448,10 @@ class DexterRepository(context: Context) {
         urgency: String = "Normal",
         category: String = "SYSTEM",
         detail: String = "",
-        actionTarget: String = ""
+        actionTarget: String = "",
+        requestId: String = ""
     ): Long {
         if (title.isBlank()) return 0L
-        val db = dbHelper.writableDatabase
         val values = ContentValues().apply {
             put("title", title.trim())
             put("urgency", urgency.trim())
@@ -1471,7 +1462,7 @@ class DexterRepository(context: Context) {
             put("snoozed_until", 0L)
             put("created_at", System.currentTimeMillis())
         }
-        val id = db.insert("attention_events", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("attention_events", 13, requestId, values)
         logAudit("ATTENTION_CREATED", "Tier: $urgency | Category: $category | Title: ${title.take(40)}")
         notifyDataChanged()
         return id
@@ -1795,14 +1786,13 @@ class DexterRepository(context: Context) {
         return list
     }
 
-    fun createRule(ruleText: String, enforcementLevel: String = "Strict"): Long {
-        val db = dbHelper.writableDatabase
+    fun createRule(ruleText: String, enforcementLevel: String = "Strict", requestId: String = ""): Long {
         val values = ContentValues().apply {
             put("rule_text", ruleText.trim())
             put("enforcement_level", enforcementLevel)
             put("is_enabled", 1)
         }
-        val id = db.insert("system_rules", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("system_rules", 15, requestId, values)
         notifyDataChanged()
         return id
     }
@@ -1853,16 +1843,15 @@ class DexterRepository(context: Context) {
         } catch (_: Exception) { false }
     }
 
-    fun logAudit(action: String, details: String) {
+    fun logAudit(action: String, details: String, requestId: String = "") {
         try {
-            val db = dbHelper.writableDatabase
             val values = ContentValues().apply {
                 put("action", action)
                 put("details", details)
                 put("timestamp", System.currentTimeMillis())
                 put("actor_type", "USER")
             }
-            db.insert("audit", null, values)
+            dbHelper.insertWithIdempotencyAndUndo("audit", 16, requestId, values)
             notifyDataChanged()
         } catch (_: Exception) {}
     }

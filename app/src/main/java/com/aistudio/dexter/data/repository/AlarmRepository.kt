@@ -10,8 +10,7 @@ class AlarmRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper)
 
     constructor(context: Context) : this(DexterDatabaseHelper.getInstance(context))
 
-    fun createAlarm(alarmTime: Long, label: String, repeatDays: String = ""): AlarmItem {
-        val db = writableDb
+    fun createAlarm(alarmTime: Long, label: String, repeatDays: String = "", requestId: String = ""): AlarmItem {
         val now = System.currentTimeMillis()
         val values = ContentValues().apply {
             put("alarm_time", alarmTime)
@@ -20,9 +19,9 @@ class AlarmRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper)
             put("is_enabled", 1)
             put("created_at", now)
         }
-        val id = db.insertOrThrow("alarms", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("alarms", 6, requestId, values)
         return AlarmItem(
-            id = id,
+            id = if (id > 0) id else 1L,
             alarmTime = alarmTime,
             label = label.trim(),
             repeatDays = repeatDays,

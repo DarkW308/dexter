@@ -17,9 +17,9 @@ class JournalRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelpe
         mood: String = "Calm",
         category: String = "Reflections",
         source: String = "APP",
-        actorType: String = "USER"
+        actorType: String = "USER",
+        requestId: String = ""
     ): JournalEntry {
-        val db = writableDb
         val now = System.currentTimeMillis()
         val values = ContentValues().apply {
             put("title", title.trim())
@@ -31,9 +31,9 @@ class JournalRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelpe
             put("actor_type", actorType)
         }
 
-        val id = db.insertOrThrow("journal_entries", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("journal_entries", 5, requestId, values)
         return JournalEntry(
-            id = id,
+            id = if (id > 0) id else 1L,
             title = title.trim(),
             content = content.trim(),
             mood = mood.trim(),

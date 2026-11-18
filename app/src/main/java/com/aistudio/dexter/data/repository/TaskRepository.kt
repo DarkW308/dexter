@@ -37,9 +37,9 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper),
         durationSeconds: Long?,
         actorType: String,
         notes: String,
-        category: String
+        category: String,
+        requestId: String
     ): TaskItem {
-        val db = writableDb
         val now = System.currentTimeMillis()
         val values = ContentValues().apply {
             put("title", title.trim())
@@ -55,38 +55,51 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper),
             put("category", category)
         }
 
-        db.beginTransaction()
-        try {
-            val id = db.insertOrThrow("tasks", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("tasks", 1, requestId, values)
+        val finalId = if (id > 0) id else {
+            getTaskByRequestId(requestId)?.id ?: 1L
+        }
+
+        if (id > 0) {
             val occValues = ContentValues().apply {
-                put("task_id", id)
+                put("task_id", finalId)
                 put("status", "SCHEDULED")
                 put("scheduled_start", scheduledStart ?: now)
                 put("scheduled_end", scheduledEnd ?: (now + (durationSeconds ?: 1800) * 1000))
                 put("created_at", now)
             }
-            db.insert("task_occurrences", null, occValues)
-            db.setTransactionSuccessful()
-
-            return TaskItem(
-                id = id,
-                title = title.trim(),
-                priority = priority,
-                projectId = projectId,
-                status = TaskStatus.PENDING,
-                dueAt = dueAt,
-                dueTimestamp = dueAt,
-                scheduledStart = scheduledStart,
-                scheduledEnd = scheduledEnd,
-                estimatedDurationSeconds = durationSeconds,
-                durationSeconds = durationSeconds,
-                notes = notes,
-                category = category,
-                createdAt = now
-            )
-        } finally {
-            db.endTransaction()
+            writableDb.insert("task_occurrences", null, occValues)
         }
+
+        return TaskItem(
+            id = finalId,
+            title = title.trim(),
+            priority = priority,
+            projectId = projectId,
+            status = TaskStatus.PENDING,
+            dueAt = dueAt,
+            dueTimestamp = dueAt,
+            scheduledStart = scheduledStart,
+            scheduledEnd = scheduledEnd,
+            estimatedDurationSeconds = durationSeconds,
+            durationSeconds = durationSeconds,
+            notes = notes,
+            category = category,
+            createdAt = now
+        )
+    }
+
+    fun getTaskByRequestId(requestId: String): TaskItem? {
+        if (requestId.isBlank()) return null
+        val db = readableDb
+        val cursor = db.rawQuery(
+            "SELECT id, title, priority, project_id, status, due_at, scheduled_start, scheduled_end, estimated_duration_seconds, completion_source, created_at, notes, category FROM tasks WHERE request_id = ? LIMIT 1",
+            arrayOf(requestId)
+        )
+        cursor.use {
+            if (it.moveToFirst()) return parseTaskCursor(it)
+        }
+        return null
     }
 
     fun createTask(
@@ -94,7 +107,8 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper),
         priority: Priority,
         dueTimestamp: Long,
         notes: String,
-        category: String
+        category: String,
+        requestId: String = ""
     ): TaskItem {
         return createTask(
             title = title,
@@ -106,7 +120,8 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper),
             durationSeconds = null,
             actorType = "USER",
             notes = notes,
-            category = category
+            category = category,
+            requestId = requestId
         )
     }
 

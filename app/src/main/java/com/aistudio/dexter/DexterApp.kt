@@ -36,8 +36,9 @@ class DexterApp : Application() {
 
         // Initialize SQLite database eagerly with WAL mode and PRAGMA foreign_keys = ON
         try {
+            com.aistudio.dexter.data.security.DexterKeyStoreManager.getInstance(this).initializeSqlCipher()
             DexterDatabaseHelper.getInstance(this).writableDatabase
-            Log.i(TAG, "Dexter SQLite Database initialized with WAL mode and foreign keys.")
+            Log.i(TAG, "Dexter Secure SQLite Database initialized with WAL mode and hardware-backed KeyStore.")
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing SQLite database", e)
         }

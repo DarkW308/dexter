@@ -73,6 +73,8 @@ class DexterActionExecutor(
             )
         }
 
+        val reqId = action.requestId ?: (action.parameters["request_id"] as? String) ?: ""
+
         return when (intent) {
             // 1. CREATE_TASK
             "CREATE_TASK" -> {
@@ -92,7 +94,8 @@ class DexterActionExecutor(
                     scheduledStart = start,
                     scheduledEnd = end,
                     durationSeconds = dur,
-                    actorType = action.actorType
+                    actorType = action.actorType,
+                    requestId = reqId
                 )
                 val prioritySuffix = if (task.priority != Priority.NORMAL && task.priority != Priority.SOMEDAY) {
                     " with ${task.priority.name.lowercase().replaceFirstChar { it.uppercase() }} priority"
@@ -137,7 +140,7 @@ class DexterActionExecutor(
             "ALARM_SNOOZE" -> {
                 val minutes = (action.parameters["minutes"] as? Int ?: 5).coerceIn(1, 60)
                 val newAlarmTime = System.currentTimeMillis() + (minutes * 60 * 1000L)
-                val alarmId = repository.createAlarm(newAlarmTime, "Snoozed Alarm ($minutes mins)")
+                val alarmId = repository.createAlarm(newAlarmTime, "Snoozed Alarm ($minutes mins)", requestId = reqId)
                 context?.let { ctx ->
                     com.aistudio.dexter.receiver.DexterAlarmReceiver.scheduleExactAlarm(ctx, alarmId, "Snoozed Reminder", newAlarmTime / 1000L)
                 }
@@ -369,7 +372,8 @@ class DexterActionExecutor(
                     type = type,
                     category = category,
                     paymentMode = paymentMode,
-                    actorType = action.actorType
+                    actorType = action.actorType,
+                    requestId = reqId
                 )
 
                 val formattedAmount = if (tx.amountRupees % 1.0 == 0.0) {
@@ -419,7 +423,8 @@ class DexterActionExecutor(
                     mood = mood,
                     category = category,
                     source = "VOICE",
-                    actorType = action.actorType
+                    actorType = action.actorType,
+                    requestId = reqId
                 )
 
                 val confirmationMsg = if (category.isNotBlank() && category != "Reflections" && category != "General") {
@@ -499,7 +504,7 @@ class DexterActionExecutor(
                     ?: (action.parameters["target_amount"] as? String)?.toDoubleOrNull() ?: 0.0
                 val targetDate = action.parameters["target_date"] as? String ?: ""
                 val unit = action.parameters["metric_unit"] as? String ?: (if (category.equals("Financial", ignoreCase = true)) "₹" else "units")
-                val goal = repository.createGoal(title, category, amount, targetDate, unit)
+                val goal = repository.createGoal(title, category, amount, targetDate, unit, requestId = reqId)
                 val targetPart = if (amount > 0) {
                     if (unit == "₹") " with target ₹${formatAmount(amount)}" else " with target ${formatAmount(amount)} $unit"
                 } else ""
@@ -537,7 +542,7 @@ class DexterActionExecutor(
                 val name = action.parameters["name"] as? String ?: "New Project"
                 val desc = action.parameters["description"] as? String ?: ""
                 val deadline = action.parameters["deadline"] as? String ?: ""
-                val proj = repository.createProject(name, desc, deadline)
+                val proj = repository.createProject(name, desc, deadline, requestId = reqId)
 
                 val milestones = action.parameters["milestones"] as? List<*>
                 val addedMilestones = mutableListOf<String>()
@@ -545,7 +550,7 @@ class DexterActionExecutor(
                     for (m in milestones) {
                         val mStr = m?.toString()?.trim()
                         if (!mStr.isNullOrBlank()) {
-                            repository.createMilestone(proj.id, mStr)
+                            repository.createMilestone(proj.id, mStr, requestId = reqId)
                             addedMilestones.add(mStr)
                         }
                     }
@@ -581,7 +586,7 @@ class DexterActionExecutor(
                 }
 
                 if (targetProject != null && milestoneTitle.isNotBlank()) {
-                    repository.createMilestone(targetProject.id, milestoneTitle)
+                    repository.createMilestone(targetProject.id, milestoneTitle, requestId = reqId)
                     ActionResult(
                         success = true,
                         intent = "CREATE_MILESTONE",
@@ -590,8 +595,8 @@ class DexterActionExecutor(
                         entityId = targetProject.id
                     )
                 } else if (targetProject == null && projectName.isNotBlank()) {
-                    val newProj = repository.createProject(projectName)
-                    repository.createMilestone(newProj.id, milestoneTitle)
+                    val newProj = repository.createProject(projectName, requestId = reqId)
+                    repository.createMilestone(newProj.id, milestoneTitle, requestId = reqId)
                     ActionResult(
                         success = true,
                         intent = "CREATE_MILESTONE",
@@ -757,7 +762,8 @@ class DexterActionExecutor(
                 val alarm = alarmRepo.createAlarm(
                     alarmTime = alarmTimeMs,
                     label = label,
-                    repeatDays = repeatDays
+                    repeatDays = repeatDays,
+                    requestId = reqId
                 )
 
                 val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
@@ -778,8 +784,8 @@ class DexterActionExecutor(
                 val person = action.parameters["person"] as? String ?: "Contact"
                 val topic = action.parameters["topic"] as? String ?: (action.parameters["note"] as? String ?: "Conversation")
                 val type = action.parameters["interactionType"] as? String ?: (action.parameters["interaction_type"] as? String ?: "Call")
-                val contactId = repository.createPerson(name = person, relationType = "Acquaintance")
-                repository.createInteraction(personId = contactId, note = topic, interactionType = type)
+                val contactId = repository.createPerson(name = person, relationType = "Acquaintance", requestId = reqId)
+                repository.createInteraction(personId = contactId, note = topic, interactionType = type, requestId = reqId)
                 ActionResult(
                     success = true,
                     intent = "LOG_INTERACTION",
@@ -797,7 +803,7 @@ class DexterActionExecutor(
                 val category = action.parameters["category"] as? String ?: "Deep Work"
                 val colorHex = action.parameters["color_hex"] as? String ?: (action.parameters["colorHex"] as? String ?: "#4FC3F7")
                 val location = action.parameters["location"] as? String ?: ""
-                val id = repository.createScheduleBlock(title, start, end, category, colorHex, location)
+                val id = repository.createScheduleBlock(title, start, end, category, colorHex, location, requestId = reqId)
                 ActionResult(
                     success = true,
                     intent = "CREATE_SCHEDULE_BLOCK",
@@ -829,7 +835,7 @@ class DexterActionExecutor(
                 val name = action.parameters["name"] as? String ?: "Contact"
                 val rel = action.parameters["relation_type"] as? String ?: (action.parameters["relationType"] as? String ?: "Friend")
                 val phone = action.parameters["phone"] as? String ?: ""
-                val id = repository.createPerson(name = name, relationType = rel, phone = phone)
+                val id = repository.createPerson(name = name, relationType = rel, phone = phone, requestId = reqId)
                 ActionResult(
                     success = true,
                     intent = "CREATE_PERSON",
@@ -860,7 +866,7 @@ class DexterActionExecutor(
             "LOG_HYDRATION" -> {
                 val amount = (action.parameters["amount_ml"] as? Number)?.toInt()
                     ?: (action.parameters["amountMl"] as? Number)?.toInt() ?: 250
-                repository.logHydration(amount)
+                repository.logHydration(amount, requestId = reqId)
                 val total = repository.getHydrationTodayMl()
                 ActionResult(
                     success = true,
@@ -890,7 +896,7 @@ class DexterActionExecutor(
                     ?: (action.parameters["qualityRating"] as? Number)?.toInt() ?: 4
                 val label = action.parameters["quality_label"] as? String ?: (action.parameters["qualityLabel"] as? String ?: "Restful")
                 val notes = action.parameters["notes"] as? String ?: ""
-                val id = repository.logSleep(bed, wake, dur, rating, label, notes)
+                val id = repository.logSleep(bed, wake, dur, rating, label, notes, requestId = reqId)
                 ActionResult(
                     success = true,
                     intent = "LOG_SLEEP",
@@ -921,7 +927,7 @@ class DexterActionExecutor(
                 val mood = action.parameters["mood"] as? String ?: "Reflective"
                 val energy = action.parameters["energy_level"] as? String ?: (action.parameters["energyLevel"] as? String ?: "Medium")
                 val note = action.parameters["note"] as? String ?: ""
-                val id = repository.logMood(mood, energy, note)
+                val id = repository.logMood(mood, energy, note, requestId = reqId)
                 ActionResult(
                     success = true,
                     intent = "LOG_MOOD",
@@ -954,7 +960,7 @@ class DexterActionExecutor(
                 val freq = action.parameters["frequency"] as? String ?: "Daily"
                 val time = action.parameters["reminder_time"] as? String ?: (action.parameters["reminderTime"] as? String ?: "08:00 AM")
                 val cat = action.parameters["category"] as? String ?: "Health"
-                val id = repository.createHabit(name = name, frequency = freq, reminderTime = time, category = cat)
+                val id = repository.createHabit(name = name, frequency = freq, reminderTime = time, category = cat, requestId = reqId)
                 ActionResult(
                     success = true,
                     intent = "CREATE_HABIT",
@@ -1010,7 +1016,7 @@ class DexterActionExecutor(
                 val content = action.parameters["content"] as? String ?: ""
                 val title = action.parameters["title"] as? String ?: "Memory"
                 val cat = action.parameters["category"] as? String ?: "Personal Profile"
-                val id = repository.createDocument(title = title, content = content, category = cat)
+                val id = repository.createDocument(title = title, content = content, category = cat, requestId = reqId)
                 ActionResult(
                     success = true,
                     intent = "SAVE_KNOWLEDGE",
@@ -1043,7 +1049,7 @@ class DexterActionExecutor(
             "CAPTURE_INTAKE" -> {
                 val note = action.parameters["note_text"] as? String ?: (action.parameters["noteText"] as? String ?: "")
                 val tag = action.parameters["category_tag"] as? String ?: (action.parameters["categoryTag"] as? String ?: "General")
-                val id = repository.createCaptureNote(noteText = note, categoryTag = tag)
+                val id = repository.createCaptureNote(noteText = note, categoryTag = tag, requestId = reqId)
                 ActionResult(
                     success = true,
                     intent = "CAPTURE_INTAKE",
@@ -1122,7 +1128,7 @@ class DexterActionExecutor(
             "CREATE_RULE" -> {
                 val ruleText = action.parameters["rule_text"] as? String ?: (action.parameters["ruleText"] as? String ?: "")
                 val level = action.parameters["enforcement_level"] as? String ?: (action.parameters["enforcementLevel"] as? String ?: "Strict")
-                val id = repository.createRule(ruleText, level)
+                val id = repository.createRule(ruleText, level, requestId = reqId)
                 ActionResult(
                     success = true,
                     intent = "CREATE_RULE",
@@ -1269,7 +1275,8 @@ class DexterActionExecutor(
         val contract = ActionContract(
             intent = parsedIntent.intent,
             parameters = params,
-            confirmed = !parsedIntent.requiresConfirmation
+            confirmed = !parsedIntent.requiresConfirmation,
+            requestId = params["request_id"] as? String
         )
 
         return executeContract(contract)

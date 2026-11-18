@@ -16,7 +16,8 @@ interface TaskDataSource {
         durationSeconds: Long? = null,
         actorType: String = "USER",
         notes: String = "",
-        category: String = "General"
+        category: String = "General",
+        requestId: String = ""
     ): TaskItem
     fun completeTask(taskId: Long, completionSource: String = "DEXTER_RECORDED", actorType: String = "USER"): Boolean
     fun markTaskPending(taskId: Long): Boolean

@@ -17,9 +17,9 @@ class FinanceRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelpe
         type: String,
         category: String,
         paymentMode: String = "UPI",
-        actorType: String = "USER"
+        actorType: String = "USER",
+        requestId: String = ""
     ): FinanceTransaction {
-        val db = writableDb
         val now = System.currentTimeMillis()
         val values = ContentValues().apply {
             put("amount_minor", amountMinor)
@@ -31,13 +31,15 @@ class FinanceRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelpe
             put("actor_type", actorType)
         }
 
-        val id = db.insertOrThrow("finance_transactions", null, values)
+        val id = dbHelper.insertWithIdempotencyAndUndo("finance_transactions", 4, requestId, values)
 
-        val delta = if (type.uppercase().trim() == "CREDIT") amountMinor else -amountMinor
-        db.execSQL("UPDATE finance_accounts SET balance_minor = balance_minor + ? WHERE name = 'Primary Account'", arrayOf(delta))
+        if (id > 0) {
+            val delta = if (type.uppercase().trim() == "CREDIT") amountMinor else -amountMinor
+            writableDb.execSQL("UPDATE finance_accounts SET balance_minor = balance_minor + ? WHERE name = 'Primary Account'", arrayOf(delta))
+        }
 
         return FinanceTransaction(
-            id = id,
+            id = if (id > 0) id else 1L,
             amountMinor = amountMinor,
             type = type.uppercase().trim(),
             category = category.trim(),

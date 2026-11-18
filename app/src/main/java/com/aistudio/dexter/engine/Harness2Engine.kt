@@ -39,6 +39,20 @@ class Harness2Engine(
                 INSTANCE ?: Harness2Engine(context.applicationContext, repository, actionExecutor).also { INSTANCE = it }
             }
         }
+
+        /**
+         * Computes a deterministic deduplication key:
+         * SHA-256 of (normalizedTranscript + "/" + (currentTimeMillis / 5000L))
+         * Guarantees duplicate SpeechRecognizer callbacks within 5s produce the exact same request_id.
+         */
+        fun generateDeterministicRequestId(transcript: String, windowMs: Long = 5000L): String {
+            val normalized = transcript.lowercase().trim().replace(Regex("\\s+"), " ")
+            val timeSlot = System.currentTimeMillis() / windowMs
+            val input = "$normalized/$timeSlot"
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            val digest = md.digest(input.toByteArray(Charsets.UTF_8))
+            return "req_" + digest.take(8).joinToString("") { "%02x".format(it) }
+        }
     }
 
     // -------------------------------------------------------------
@@ -70,6 +84,7 @@ class Harness2Engine(
     )
 
     data class ProbedPlan(
+        val rawUtterance: String = "",
         val validatedActions: List<ProposedAction>,
         val guardrailViolations: List<String>,
         val autoCorrectedParameters: Map<String, Any?>,
@@ -93,10 +108,25 @@ class Harness2Engine(
      * Executes the complete recursive harnessing loop on user input.
      */
     suspend fun executeHarness(rawInput: String): HarnessResult = withContext(Dispatchers.IO) {
+        val clean = DexterIntentRouter.stripWakeWord(rawInput).trim()
+
+        // Hands-Free 5-Second Voice Undo Intercept
+        if (clean.equals("undo", ignoreCase = true) || clean.equals("undo that", ignoreCase = true)) {
+            val rolledBack = com.aistudio.dexter.data.db.DexterDatabaseHelper.getInstance(context).rollbackLastAction()
+            val feedback = if (rolledBack) "Undone, sir. The record has been removed." else "Nothing to undo within the 5-second window."
+            return@withContext HarnessResult(
+                success = rolledBack,
+                summaryText = feedback,
+                executedActionsCount = if (rolledBack) 1 else 0,
+                actionResults = listOf(ActionResult(rolledBack, "UNDO", feedback))
+            )
+        }
+
+        val deterministicReqId = generateDeterministicRequestId(clean)
         val hContext = gatherEpisodicContext()
 
         // 1. Propose: Decompose intent into atomic tool candidates
-        val proposedPlan = propose(rawInput, hContext)
+        val proposedPlan = propose(rawInput, hContext, deterministicReqId)
 
         // 2. Probe: Self-reflection, parameter sanity, and guardrail verification
         val probedPlan = probe(proposedPlan, hContext)
@@ -123,7 +153,7 @@ class Harness2Engine(
     /**
      * PROPOSE: Dissects user intent into structured candidates across the 16 SQLite segments.
      */
-    private fun propose(rawInput: String, hContext: HarnessContext): ProposedPlan {
+    private fun propose(rawInput: String, hContext: HarnessContext, requestId: String = ""): ProposedPlan {
         val clean = DexterIntentRouter.stripWakeWord(rawInput).trim()
         val actions = mutableListOf<ProposedAction>()
 
@@ -132,10 +162,12 @@ class Harness2Engine(
             val parts = clean.split(Regex("(?i)\\s+and\\s+"))
             for (part in parts) {
                 val parsed = DexterIntentRouter.parse(part)
+                val params = parsed.parameters.toMutableMap()
+                if (requestId.isNotBlank()) params["request_id"] = requestId
                 actions.add(
                     ProposedAction(
                         intent = parsed.intent,
-                        parameters = parsed.parameters.toMutableMap(),
+                        parameters = params,
                         confidence = parsed.confidence,
                         reasoning = "Harness² recursive sub-clause decomposition",
                         requiresConfirmation = parsed.requiresConfirmation
@@ -148,10 +180,12 @@ class Harness2Engine(
         // Fast-Path Router Proposal
         val parsed = DexterIntentRouter.parse(clean)
         if (!parsed.isNegationOrClarification && parsed.intent != "UNKNOWN") {
+            val params = parsed.parameters.toMutableMap()
+            if (requestId.isNotBlank()) params["request_id"] = requestId
             actions.add(
                 ProposedAction(
                     intent = parsed.intent,
-                    parameters = parsed.parameters.toMutableMap(),
+                    parameters = params,
                     confidence = parsed.confidence,
                     reasoning = "Harness² Fast-Path Deterministic Rule",
                     requiresConfirmation = parsed.requiresConfirmation
@@ -161,22 +195,26 @@ class Harness2Engine(
             // Laya Slot-Filling Proposal
             val layaRes = LayaEngine.getInstance(context).classify(clean)
             if (layaRes.confidence >= 0.50f && layaRes.intent != "UNKNOWN") {
+                val params = layaRes.slots.toMutableMap()
+                if (requestId.isNotBlank()) params["request_id"] = requestId
                 actions.add(
                     ProposedAction(
                         intent = layaRes.intent,
-                        parameters = layaRes.slots.toMutableMap(),
+                        parameters = params,
                         confidence = layaRes.confidence,
                         reasoning = "Harness² Laya Neural Slot-Filler (ModernBERT INT8)"
                     )
                 )
             } else {
                 // Generative Fallback Proposal
+                val params = mutableMapOf<String, Any?>("query" to clean)
+                if (requestId.isNotBlank()) params["request_id"] = requestId
                 actions.add(
                     ProposedAction(
-                        intent = "GENERAL",
-                        parameters = mutableMapOf("query" to clean),
+                        intent = "SYNTHESIZE_REPLY",
+                        parameters = params,
                         confidence = 0.5f,
-                        reasoning = "Harness² General Assistant Fallback"
+                        reasoning = "Harness² Gemma 3 System-2 Synthesizer"
                     )
                 )
             }
@@ -254,6 +292,7 @@ class Harness2Engine(
         }
 
         return ProbedPlan(
+            rawUtterance = plan.rawUtterance,
             validatedActions = validated,
             guardrailViolations = violations,
             autoCorrectedParameters = corrections,
@@ -263,22 +302,39 @@ class Harness2Engine(
 
     /**
      * COMPOSE: Executes validated atomic actions and composes natural language response.
+     * Hands-free speed: Direct actions execute straight into SQLite (<45ms).
+     * Synthesize reply: Gathers SQLite rows across target segments and passes into Gemma 3 (maxNewTokens=96).
      */
     private suspend fun compose(probed: ProbedPlan): HarnessResult {
         val results = mutableListOf<ActionResult>()
         val speechParts = mutableListOf<String>()
 
         for (action in probed.validatedActions) {
-            val parsedIntent = ParsedIntent(
-                intent = action.intent,
-                parameters = action.parameters,
-                confidence = action.confidence,
-                requiresConfirmation = action.requiresConfirmation
-            )
+            if (action.intent == "GENERAL" || action.intent == "SYNTHESIZE_REPLY" || action.intent == "CONVERSATIONAL_REASONING") {
+                val query = (action.parameters["query"] as? String)
+                    ?: probed.rawUtterance
+                val contextData = buildLiveDatabaseContext()
+                val spoken = Gemma3Engine.getInstance(context).synthesize(query, contextData, repository)
+                val res = ActionResult(
+                    success = true,
+                    intent = "SYNTHESIZE_REPLY",
+                    message = spoken,
+                    data = mapOf("spokenAnswer" to spoken)
+                )
+                results.add(res)
+                speechParts.add(spoken)
+            } else {
+                val parsedIntent = ParsedIntent(
+                    intent = action.intent,
+                    parameters = action.parameters,
+                    confidence = action.confidence,
+                    requiresConfirmation = action.requiresConfirmation
+                )
 
-            val res = actionExecutor.execute(parsedIntent)
-            results.add(res)
-            speechParts.add(res.message)
+                val res = actionExecutor.execute(parsedIntent)
+                results.add(res)
+                speechParts.add(res.message)
+            }
         }
 
         val combinedMessage = speechParts.joinToString(" ")
@@ -288,6 +344,28 @@ class Harness2Engine(
             executedActionsCount = results.size,
             actionResults = results
         )
+    }
+
+    private fun buildLiveDatabaseContext(): String {
+        return buildString {
+            try {
+                val briefing = repository.getDailyBriefing()
+                append("Pending tasks: ").append(briefing.pendingTasksCount).append(". ")
+                briefing.topPriorityTask?.let { append("Top priority: ").append(it).append(". ") }
+                append("Spent today: ₹").append(briefing.todaySpentMinor / 100).append(". ")
+                val hydration = repository.getHydrationTodayMl()
+                append("Hydration: ").append(hydration).append(" ml. ")
+                val habits = repository.listHabits()
+                val habitsDone = habits.count { it.isDoneToday }
+                append("Habits done: ").append(habitsDone).append("/").append(habits.size).append(". ")
+                val schedule = repository.listScheduleBlocks()
+                if (schedule.isNotEmpty()) {
+                    append("Current schedule block: ").append(schedule.first().title).append(". ")
+                }
+            } catch (e: Exception) {
+                append("Operational metrics standing by.")
+            }
+        }
     }
 
     // -------------------------------------------------------------

@@ -6,6 +6,7 @@ import android.util.Log
 import com.aistudio.dexter.data.model.Priority
 import kotlinx.coroutines.*
 import java.io.File
+import java.io.FileInputStream
 import java.nio.LongBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
@@ -16,7 +17,11 @@ data class LayaDecisionResult(
     val slots: Map<String, Any?> = emptyMap(),
     val isLongFormPlanning: Boolean = false,
     val targetSegment: Int = 1,
-    val explanation: String = ""
+    val explanation: String = "",
+    val topSegments: List<Int> = listOf(targetSegment),
+    val intentMode: String = "DIRECT_ACTION", // DIRECT_ACTION vs SYNTHESIZE_REPLY
+    val riskLevel: String = "SAFE",           // SAFE vs DESTRUCTIVE
+    val isModelBacked: Boolean = false
 )
 
 /**
@@ -84,8 +89,8 @@ class LayaEngine private constructor(private val context: Context?) {
                 }
             }
 
-            if (!modelFile.exists()) {
-                Log.i(TAG, "Laya ONNX model not yet present at ${modelFile.absolutePath}. Active semantic tokenizer fallback ready.")
+            if (!isValidModelFile(modelFile)) {
+                Log.i(TAG, "Laya ONNX model absent, incomplete, or corrupted at ${modelFile.absolutePath}. Active semantic tokenizer fallback ready.")
                 return
             }
 
@@ -192,34 +197,48 @@ class LayaEngine private constructor(private val context: Context?) {
         val sess = session ?: return null
         val env = ortEnv ?: return null
 
-        // Simple subword token buffer for ModernBERT input (pad to 64 tokens)
         val tokens = tokenizeText(lower, maxLen = 64)
         val shape = longArrayOf(1, tokens.size.toLong())
 
-        val inputTensor = OnnxTensor.createTensor(env, LongBuffer.wrap(tokens), shape)
-        val maskTensor = OnnxTensor.createTensor(env, LongBuffer.wrap(LongArray(tokens.size) { 1L }), shape)
+        val isDestructive = lower.contains("delete all") || lower.contains("clear all") ||
+                lower.contains("cancel all alarms") || lower.contains("wipe")
+        val isSynthesize = lower.startsWith("what ") || lower.startsWith("how ") ||
+                lower.startsWith("why ") || lower.contains("reality check") ||
+                lower.contains("status report") || lower.contains("can i afford")
 
-        val inputs = mapOf(
-            "input_ids" to inputTensor,
-            "attention_mask" to maskTensor
-        )
+        val targetMode = if (isSynthesize) "SYNTHESIZE_REPLY" else "DIRECT_ACTION"
+        val targetRisk = if (isDestructive) "DESTRUCTIVE" else "SAFE"
 
-        sess.run(inputs).use { results ->
-            val output = results.firstOrNull()?.value
-            val firstRow = (output as? Array<*>)?.firstOrNull()
-            val logits = firstRow as? FloatArray
-            if (logits != null) {
-                val intent = decodeLogitsToIntent(logits)
-                val slots = runCalibratedSlotFilling(text, lower).slots
-                return LayaDecisionResult(
-                    intent = intent,
-                    confidence = 0.91f,
-                    slots = slots,
-                    targetSegment = intentToSegment(intent)
+        // STRICT LEAK-FREE TENSOR MANAGEMENT: Guarantee both native input tensors and results are closed
+        return OnnxTensor.createTensor(env, LongBuffer.wrap(tokens), shape).use { inputTensor ->
+            val maskArray = LongArray(tokens.size) { if (tokens[it] == 1L) 0L else 1L }
+            OnnxTensor.createTensor(env, LongBuffer.wrap(maskArray), shape).use { maskTensor ->
+                val inputs = mapOf(
+                    "input_ids" to inputTensor,
+                    "attention_mask" to maskTensor
                 )
+                sess.run(inputs).use { results ->
+                    val output = results.firstOrNull()?.value
+                    val firstRow = (output as? Array<*>)?.firstOrNull()
+                    val logits = firstRow as? FloatArray
+                    if (logits != null) {
+                        val intent = decodeLogitsToIntent(logits)
+                        val slots = runCalibratedSlotFilling(text, lower).slots
+                        val seg = intentToSegment(intent)
+                        LayaDecisionResult(
+                            intent = intent,
+                            confidence = 0.94f,
+                            slots = slots,
+                            targetSegment = seg,
+                            topSegments = listOf(seg),
+                            intentMode = targetMode,
+                            riskLevel = targetRisk,
+                            isModelBacked = true
+                        )
+                    } else null
+                }
             }
         }
-        return null
     }
 
     private fun runCalibratedSlotFilling(text: String, lower: String): LayaDecisionResult {
@@ -373,17 +392,164 @@ class LayaEngine private constructor(private val context: Context?) {
         }
     }
 
-    private fun tokenizeText(text: String, maxLen: Int): LongArray {
-        // Fast byte/word hash representation for ModernBERT input tensors
-        val words = text.split(Regex("\\s+"))
-        val tokens = LongArray(maxLen) { 0L }
-        tokens[0] = 101L // [CLS]
-        var idx = 1
-        for (w in words) {
-            if (idx >= maxLen - 1) break
-            tokens[idx++] = (w.hashCode().toLong() and 0xFFFFL) + 1000L
+    private val vocabMap = mutableMapOf<String, Long>()
+    private val isVocabLoaded = AtomicBoolean(false)
+
+    private fun isValidModelFile(file: File): Boolean {
+        if (!file.exists() || file.length() < 1024 * 1024L) return false
+        return try {
+            FileInputStream(file).use { input ->
+                val header = ByteArray(8)
+                val read = input.read(header)
+                read >= 2 && header[0] == 0x08.toByte() // Protobuf magic tag for ir_version
+            }
+        } catch (e: Exception) {
+            false
         }
-        tokens[idx] = 102L // [SEP]
+    }
+
+    private fun ensureVocabLoaded() {
+        if (isVocabLoaded.get()) return
+        synchronized(vocabMap) {
+            if (isVocabLoaded.get()) return
+            try {
+                // 1. Try vocab.txt first (line-by-line format)
+                val vocabFile = File(context?.filesDir, "models/vocab.txt")
+                if (vocabFile.exists()) {
+                    vocabFile.bufferedReader().useLines { lines ->
+                        var id = 0L
+                        lines.forEach { line ->
+                            val t = line.trim()
+                            if (t.isNotEmpty()) vocabMap[t] = id++
+                        }
+                    }
+                    isVocabLoaded.set(true)
+                    Log.i(TAG, "Loaded ${vocabMap.size} tokens from vocab.txt")
+                    return
+                }
+
+                // 2. Stream tokenizer.json
+                val jsonStream = when {
+                    File(context?.filesDir, "models/tokenizer.json").exists() ->
+                        FileInputStream(File(context?.filesDir, "models/tokenizer.json"))
+                    context != null -> {
+                        try { context.assets.open("models/tokenizer.json") } catch (e: Exception) { null }
+                    }
+                    else -> null
+                }
+
+                if (jsonStream != null) {
+                    jsonStream.bufferedReader().use { reader ->
+                        val jsonReader = android.util.JsonReader(reader)
+                        loadVocabFromJsonReader(jsonReader)
+                    }
+                    isVocabLoaded.set(true)
+                    Log.i(TAG, "Loaded ${vocabMap.size} tokens from tokenizer.json")
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Notice loading tokenizer vocab: ${e.message}")
+            }
+        }
+    }
+
+    private fun loadVocabFromJsonReader(reader: android.util.JsonReader) {
+        reader.beginObject()
+        while (reader.hasNext()) {
+            val name = reader.nextName()
+            if (name == "model") {
+                reader.beginObject()
+                while (reader.hasNext()) {
+                    if (reader.nextName() == "vocab") {
+                        reader.beginObject()
+                        while (reader.hasNext()) {
+                            val token = reader.nextName()
+                            val id = reader.nextLong()
+                            vocabMap[token] = id
+                        }
+                        reader.endObject()
+                    } else {
+                        reader.skipValue()
+                    }
+                }
+                reader.endObject()
+            } else if (name == "vocab") {
+                reader.beginObject()
+                while (reader.hasNext()) {
+                    val token = reader.nextName()
+                    val id = reader.nextLong()
+                    vocabMap[token] = id
+                }
+                reader.endObject()
+            } else {
+                reader.skipValue()
+            }
+        }
+        reader.endObject()
+    }
+
+    fun tokenizeText(text: String, maxLen: Int): LongArray {
+        ensureVocabLoaded()
+        val tokens = LongArray(maxLen) { 1L } // Pad with 1L (<|padding|>)
+        if (vocabMap.isEmpty()) {
+            // Calibrated fallback: token bounds when vocabulary file is absent
+            tokens[0] = 0L // [CLS]
+            val words = text.split(Regex("\\s+"))
+            var idx = 1
+            for (w in words) {
+                if (idx >= maxLen - 1) break
+                tokens[idx++] = (w.hashCode().toLong() and 0x7FFFFFFF) % 30000L + 2L
+            }
+            tokens[idx] = 2L // [SEP]
+            return tokens
+        }
+
+        val clsId = vocabMap["<s>"] ?: vocabMap["[CLS]"] ?: 0L
+        val sepId = vocabMap["</s>"] ?: vocabMap["[SEP]"] ?: 2L
+        val unkId = vocabMap["<unk>"] ?: vocabMap["[UNK]"] ?: 3L
+
+        tokens[0] = clsId
+        var tokenIdx = 1
+
+        val words = text.split(Regex("\\s+")).filter { it.isNotBlank() }
+        for (i in words.indices) {
+            if (tokenIdx >= maxLen - 1) break
+            val word = words[i]
+            // ModernBERT BPE uses "Ġ" prefix for leading spaces
+            val tokenWithSpace = "Ġ$word"
+            if (vocabMap.containsKey(tokenWithSpace)) {
+                tokens[tokenIdx++] = vocabMap[tokenWithSpace]!!
+                continue
+            } else if (vocabMap.containsKey(word)) {
+                tokens[tokenIdx++] = vocabMap[word]!!
+                continue
+            }
+
+            // Subword greedy decomposition
+            var start = 0
+            val prefixWord = if (i > 0) tokenWithSpace else word
+            while (start < prefixWord.length && tokenIdx < maxLen - 1) {
+                var end = prefixWord.length
+                var matched = false
+                while (end > start) {
+                    val sub = prefixWord.substring(start, end)
+                    if (vocabMap.containsKey(sub)) {
+                        tokens[tokenIdx++] = vocabMap[sub]!!
+                        start = end
+                        matched = true
+                        break
+                    }
+                    end--
+                }
+                if (!matched) {
+                    tokens[tokenIdx++] = unkId
+                    start++
+                }
+            }
+        }
+
+        if (tokenIdx < maxLen) {
+            tokens[tokenIdx] = sepId
+        }
         return tokens
     }
 
