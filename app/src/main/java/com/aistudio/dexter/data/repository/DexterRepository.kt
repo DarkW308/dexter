@@ -1843,17 +1843,20 @@ class DexterRepository(context: Context) {
         } catch (_: Exception) { false }
     }
 
-    fun logAudit(action: String, details: String, requestId: String = "") {
-        try {
+    fun logAudit(action: String, details: String = "", actorType: String = "USER", requestId: String = ""): Long {
+        return try {
             val values = ContentValues().apply {
                 put("action", action)
                 put("details", details)
                 put("timestamp", System.currentTimeMillis())
-                put("actor_type", "USER")
+                put("actor_type", actorType)
             }
-            dbHelper.insertWithIdempotencyAndUndo("audit", 16, requestId, values)
+            val id = dbHelper.insertWithIdempotencyAndUndo("audit", 16, requestId, values)
             notifyDataChanged()
-        } catch (_: Exception) {}
+            if (id > 0) id else 1L
+        } catch (_: Exception) {
+            audit.logAction(action, details, actorType)
+        }
     }
 
     fun listAuditLogs(limit: Int = 30): List<AuditLog> = audit.listRecentLogs(limit)
@@ -2029,10 +2032,6 @@ class DexterRepository(context: Context) {
             topPriorityTask = topPriority,
             topTaskTitle = topPriority
         )
-    }
-
-    fun logAudit(action: String, details: String = "", actorType: String = "USER"): Long {
-        return audit.logAction(action, details, actorType)
     }
 
     fun notifyDataChanged() {
