@@ -1055,7 +1055,16 @@ object DexterIntentRouter {
             return ParsedIntent("SUMMARIZE_EXPENSES")
         }
 
-        // 2. Task queries: "what are all the pending tasks today", "what tasks do i have", "show completed tasks"
+        // 2. Specific task search query: "what tasks mention X", "find tasks about X", "search tasks for X"
+        val taskSearchMatch = Pattern.compile("^(?:what tasks mention|search tasks for|find tasks about|find task about|find tasks containing|tasks mentioning|tasks about)\\s+(.+)$", Pattern.CASE_INSENSITIVE).matcher(text.trim())
+        if (taskSearchMatch.find()) {
+            val q = taskSearchMatch.group(1)?.trim()?.removeSuffix("?") ?: ""
+            if (q.isNotBlank()) {
+                return ParsedIntent("SEARCH_TASKS", parameters = mapOf("query" to q))
+            }
+        }
+
+        // 2b. Task queries: "what are all the pending tasks today", "what tasks do i have", "show completed tasks"
         if (cleanLower.contains(Regex("\\b(tasks?|todos?|pending|to do|to-do|work|agenda|unfinished)\\b")) ||
             cleanLower.contains("what do i need to do") || cleanLower.contains("what do i have to do") ||
             cleanLower.contains("what have i finished") || cleanLower.contains("do i have any tasks") ||
@@ -1125,7 +1134,7 @@ object DexterIntentRouter {
         }
 
         // 11. Knowledge Vault queries
-        val vaultSearchMatch = Pattern.compile("^(?:what did i note about|search vault for|search memory for|what is my|where is my)\\s+(.+)$", Pattern.CASE_INSENSITIVE).matcher(text.trim())
+        val vaultSearchMatch = Pattern.compile("^(?:what did i note about|search vault for|search memory for|search notes for|find notes about|find my note about|find note about|what is my|where is my)\\s+(.+)$", Pattern.CASE_INSENSITIVE).matcher(text.trim())
         if (vaultSearchMatch.find()) {
             val q = vaultSearchMatch.group(1)?.trim()?.removeSuffix("?") ?: ""
             if (q.isNotBlank()) {

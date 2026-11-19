@@ -99,8 +99,8 @@ class LayaEngine private constructor(private val context: Context?) {
             }
 
             val opts = OrtSession.SessionOptions().apply {
-                // Pin to 2 big Cortex-A73 cores on Helio P60 for < 50ms latency without thermal throttling
-                setIntraOpNumThreads(2)
+                val optimalThreads = DeviceHardwareProfile.getOptimalThreadCount(context)
+                setIntraOpNumThreads(optimalThreads)
                 setInterOpNumThreads(1)
                 setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
                 setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)

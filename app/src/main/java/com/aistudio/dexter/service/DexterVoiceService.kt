@@ -26,6 +26,9 @@ class DexterVoiceService : Service() {
         const val CHANNEL_ID = "dexter_voice_channel"
         const val NOTIFICATION_ID = 1001
 
+        @Volatile
+        private var instance: DexterVoiceService? = null
+
         const val ACTION_TRIGGER_PROACTIVE_ALARM = "com.aistudio.dexter.ACTION_TRIGGER_PROACTIVE_ALARM"
         const val ACTION_SIMULATE_WAKE_UP = "com.aistudio.dexter.ACTION_SIMULATE_WAKE_UP"
         const val ACTION_SET_ALEXA_MODE = "com.aistudio.dexter.ACTION_SET_ALEXA_MODE"
@@ -34,6 +37,34 @@ class DexterVoiceService : Service() {
         const val EXTRA_ALARM_LABEL = "extra_alarm_label"
         const val EXTRA_IS_MORNING_BRIEFING = "extra_is_morning_briefing"
         const val EXTRA_ALEXA_MODE_ENABLED = "extra_alexa_mode_enabled"
+
+        /**
+         * Pauses continuous background wake-word AudioRecord capture to guarantee
+         * exclusive microphone hardware access for foreground SpeechRecognizer or hardware probing.
+         */
+        fun pauseWakeWordListening() {
+            try {
+                instance?.audioEngine?.wakeWordRecorder?.pause()
+                Log.i(TAG, "WakeWord audio capture paused for foreground speech recognition.")
+            } catch (e: Exception) {
+                Log.w(TAG, "Error pausing wake-word listening: ${e.message}")
+            }
+        }
+
+        /**
+         * Resumes continuous background wake-word AudioRecord capture once foreground
+         * speech recognition or probing has finished.
+         */
+        fun resumeWakeWordListening() {
+            try {
+                if (instance?.audioEngine?.isAlexaHandsFreeEnabled == true) {
+                    instance?.audioEngine?.wakeWordRecorder?.resume()
+                    Log.i(TAG, "WakeWord audio capture resumed.")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error resuming wake-word listening: ${e.message}")
+            }
+        }
 
         fun startService(context: Context) {
             val hasMicPermission = androidx.core.content.ContextCompat.checkSelfPermission(
@@ -142,6 +173,7 @@ class DexterVoiceService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         Log.i(TAG, "DexterVoiceService initializing...")
 
         try {
@@ -457,6 +489,9 @@ class DexterVoiceService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (instance == this) {
+            instance = null
+        }
         releaseWakeLock()
         audioEngine?.shutdown()
         processManager?.stopDaemon()

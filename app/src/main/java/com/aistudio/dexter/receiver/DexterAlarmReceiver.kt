@@ -57,7 +57,22 @@ class DexterAlarmReceiver : BroadcastReceiver() {
             )
 
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (alarmManager.canScheduleExactAlarms()) {
+                        alarmManager.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerMs,
+                            pendingIntent
+                        )
+                    } else {
+                        Log.w(TAG, "Exact alarm permission not granted on Android 12+, falling back gracefully to setAndAllowWhileIdle")
+                        alarmManager.setAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerMs,
+                            pendingIntent
+                        )
+                    }
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setExactAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
                         triggerMs,
@@ -72,12 +87,20 @@ class DexterAlarmReceiver : BroadcastReceiver() {
                 }
                 Log.i(TAG, "Scheduled exact alarm #$alarmId '$label' for $triggerEpochSeconds")
             } catch (e: SecurityException) {
-                Log.e(TAG, "Exact alarm permission missing, fallback to setWindow", e)
-                alarmManager.set(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerMs,
-                    pendingIntent
-                )
+                Log.e(TAG, "Exact alarm permission missing, fallback to setAndAllowWhileIdle", e)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerMs,
+                        pendingIntent
+                    )
+                } else {
+                    alarmManager.set(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerMs,
+                        pendingIntent
+                    )
+                }
             }
         }
 

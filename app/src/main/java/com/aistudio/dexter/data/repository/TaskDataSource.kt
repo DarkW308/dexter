@@ -24,6 +24,7 @@ interface TaskDataSource {
     fun toggleTaskCompletion(taskId: Long): Boolean
     fun deleteTask(taskId: Long): Boolean
     fun getAllTasks(limit: Int = 200): List<TaskItem>
+    fun searchTasks(query: String, limit: Int = 50): List<TaskItem>
     fun listPendingTasks(limit: Int = 100): List<TaskItem>
     fun listCompletedTasks(limit: Int = 100): List<TaskItem>
     fun getTaskCounts(): TaskCounts

@@ -12,6 +12,7 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.aistudio.dexter.service.DexterVoiceService
 import java.util.Locale
 
 enum class OrbVisualState {
@@ -125,6 +126,10 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
         // Barge-in: if Dexter is speaking, silence him immediately
         stopSpeaking()
 
+        // Temporarily pause background wake-word AudioRecord capture to guarantee
+        // exclusive microphone hardware access for Android SpeechRecognizer
+        DexterVoiceService.pauseWakeWordListening()
+
         val diag = SpeechSessionDiagnostics()
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
         if (audioManager != null) {
@@ -168,6 +173,7 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
 
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             _orbState.value = OrbVisualState.IDLE
+            DexterVoiceService.resumeWakeWordListening()
             diag.lastErrorMessage = "Speech recognizer service unavailable on this device."
             _latestDiagnostics.value = diag.copy()
             val msg = "Speech recognizer service unavailable on this device. You can tap the sample commands or type below."
@@ -191,9 +197,9 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, currentLocale.toString())
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, languageTag)
-                putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, languageTag)
+                putExtra("android.speech.extra.PREFER_OFFLINE", true)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
                 putExtra("android.speech.extra.DICTATION_MODE", true)
@@ -244,6 +250,8 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
                 }
 
                 override fun onError(error: Int) {
+                    DexterVoiceService.resumeWakeWordListening()
+
                     val (errorName, message) = when (error) {
                         SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO (3)" to "Microphone audio recording issue. Please check permissions."
                         SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT (5)" to "Speech client error. Ready to listen again."
@@ -255,6 +263,14 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
                         SpeechRecognizer.ERROR_SERVER -> "ERROR_SERVER (4)" to "Voice recognition server error."
                         SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "ERROR_SPEECH_TIMEOUT (6)" to "Listening timed out. Tap the orb to speak, or choose a command below."
                         else -> "ERROR_UNKNOWN ($error)" to "Speech recognition paused ($error). Tap the orb to speak again."
+                    }
+
+                    if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT) {
+                        try {
+                            speechRecognizer?.cancel()
+                            speechRecognizer?.destroy()
+                            speechRecognizer = null
+                        } catch (ignored: Exception) {}
                     }
 
                     diag.lastErrorCode = error
@@ -279,6 +295,7 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
                 }
 
                 override fun onResults(results: Bundle?) {
+                    DexterVoiceService.resumeWakeWordListening()
                     _orbState.value = OrbVisualState.PROCESSING
                     _rmsVolume.value = 0f
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -328,6 +345,7 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
             speechRecognizer = null
             tts?.shutdown()
             tts = null
+            DexterVoiceService.resumeWakeWordListening()
         } catch (e: Exception) {
             Log.e("DexterSpeech", "Error shutting down speech engine", e)
         }
@@ -335,6 +353,7 @@ class DexterSpeechManager(private val context: Context) : TextToSpeech.OnInitLis
 
     fun stopListening() {
         speechRecognizer?.stopListening()
+        DexterVoiceService.resumeWakeWordListening()
         if (_orbState.value == OrbVisualState.LISTENING) {
             _orbState.value = OrbVisualState.IDLE
         }

@@ -161,11 +161,30 @@ class DexterActionExecutor(
                 )
             }
 
-            // 2. LIST_PENDING_TASKS
-            "LIST_PENDING_TASKS" -> {
-                val tasks = taskRepo.listPendingTasks()
+            // 2. LIST_PENDING_TASKS / SEARCH_TASKS
+            "SEARCH_TASKS" -> {
+                val q = (action.parameters["query"] as? String ?: action.parameters["text"] as? String ?: "").trim()
+                val tasks = taskRepo.searchTasks(q)
                 val msg = if (tasks.isEmpty()) {
-                    "You have no pending tasks."
+                    "No tasks matching '$q' found."
+                } else {
+                    val top = tasks.first()
+                    "Found ${tasks.size} task(s) matching '$q'. First is '${top.title}'."
+                }
+                ActionResult(
+                    success = true,
+                    intent = "SEARCH_TASKS",
+                    message = msg,
+                    entityType = "TASK",
+                    data = mapOf("count" to tasks.size, "tasks" to tasks, "query" to q)
+                )
+            }
+
+            "LIST_PENDING_TASKS" -> {
+                val q = (action.parameters["query"] as? String ?: "").trim()
+                val tasks = if (q.isNotBlank()) taskRepo.searchTasks(q) else taskRepo.listPendingTasks()
+                val msg = if (tasks.isEmpty()) {
+                    if (q.isNotBlank()) "No pending tasks matching '$q' found." else "You have no pending tasks."
                 } else {
                     "You have ${tasks.size} pending tasks. Top task is '${tasks.first().title}'."
                 }

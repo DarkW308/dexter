@@ -3,8 +3,11 @@ package com.aistudio.dexter.data.repository
 import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
+import android.util.Log
 import com.aistudio.dexter.data.db.DexterDatabaseHelper
 import com.aistudio.dexter.data.model.*
+import com.aistudio.dexter.engine.Needle3Engine
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -13,7 +16,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-class DexterRepository(context: Context) {
+class DexterRepository(val context: Context) {
 
     private val dbHelper = DexterDatabaseHelper.getInstance(context)
 
@@ -939,8 +942,85 @@ class DexterRepository(context: Context) {
 
     // Segment 11: Reading & Knowledge Vault (Local RAG / Personal Memory)
     fun listDocuments(query: String = "", categoryFilter: String = "ALL"): List<DocumentItem> {
+        val cleanQuery = query.trim()
         val list = mutableListOf<DocumentItem>()
         val db = dbHelper.readableDatabase
+
+        // 1. FTS5 MATCH Query when query is present
+        if (cleanQuery.isNotBlank()) {
+            val sanitized = DexterDatabaseHelper.sanitizeFtsQuery(cleanQuery)
+            if (sanitized.isNotBlank()) {
+                try {
+                    val catClause = if (categoryFilter != "ALL") {
+                        if (categoryFilter == "CORE_MEMORY") "AND k.is_core_memory = 1" else "AND k.category = '$categoryFilter'"
+                    } else ""
+                    val sql = """
+                        SELECT k.id, k.title, k.source, k.file_type, k.excerpt, k.chunk_count, k.content, k.category, k.is_core_memory, k.tags, k.created_at
+                        FROM knowledge_documents k
+                        JOIN knowledge_fts f ON k.id = f.rowid
+                        WHERE knowledge_fts MATCH ? $catClause
+                        ORDER BY bm25(knowledge_fts) ASC, k.is_core_memory DESC
+                        LIMIT 50
+                    """.trimIndent()
+                    val cursor = db.rawQuery(sql, arrayOf(sanitized))
+                    cursor.use {
+                        while (it.moveToNext()) {
+                            list.add(
+                                DocumentItem(
+                                    id = it.getLong(0),
+                                    title = it.getString(1) ?: "",
+                                    source = it.getString(2) ?: "Note",
+                                    fileType = it.getString(3) ?: "DOC",
+                                    excerpt = it.getString(4) ?: "",
+                                    chunkCount = it.getInt(5),
+                                    content = it.getString(6) ?: "",
+                                    category = it.getString(7) ?: "Personal Profile",
+                                    isCoreMemory = it.getInt(8) == 1,
+                                    tags = it.getString(9) ?: "",
+                                    createdAt = it.getLong(10)
+                                )
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Knowledge FTS5 search notice: ${e.message}")
+                }
+            }
+
+            // 2. Semantic vector embedding fallback if FTS5 returns 0 matches
+            if (list.isEmpty()) {
+                val allDocs = loadDocumentsRaw(db, "", categoryFilter)
+                if (allDocs.isNotEmpty()) {
+                    try {
+                        val needleEngine = Needle3Engine.getInstance(context)
+                        val queryVec = needleEngine.extractEmbedding(cleanQuery)
+                        val ranked = allDocs.map { doc ->
+                            val docText = "${doc.title} ${doc.excerpt} ${doc.content} ${doc.tags}".trim()
+                            val docVec = needleEngine.extractEmbedding(docText)
+                            val sim = needleEngine.cosineSimilarity(queryVec, docVec)
+                            Pair(doc, sim)
+                        }.filter { it.second > 0.30f }
+                         .sortedByDescending { it.second }
+                         .take(30)
+                         .map { it.first }
+                        list.addAll(ranked)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Semantic knowledge embedding notice: ${e.message}")
+                    }
+                }
+            }
+
+            if (list.isNotEmpty()) {
+                return list
+            }
+        }
+
+        // 3. Unfiltered or standard fallback scan
+        return loadDocumentsRaw(db, cleanQuery, categoryFilter)
+    }
+
+    private fun loadDocumentsRaw(db: SQLiteDatabase, query: String, categoryFilter: String): List<DocumentItem> {
+        val list = mutableListOf<DocumentItem>()
         val clauses = mutableListOf<String>()
         val args = mutableListOf<String>()
 

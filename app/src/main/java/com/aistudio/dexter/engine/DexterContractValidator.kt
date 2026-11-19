@@ -31,6 +31,7 @@ object DexterContractValidator {
     val TOOL_NAME_TO_INTENT: Map<String, String> = mapOf(
         "create_task" to "CREATE_TASK",
         "list_pending_tasks" to "LIST_PENDING_TASKS",
+        "search_tasks" to "SEARCH_TASKS",
         "complete_task" to "COMPLETE_TASK",
         "user_report_task_completion" to "USER_REPORT_TASK_COMPLETION",
         "cancel_task" to "CANCEL_TASK",

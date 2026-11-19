@@ -64,6 +64,11 @@ class TaskManagerViewModel(
 
     init {
         loadTasks()
+        viewModelScope.launch {
+            com.aistudio.dexter.data.repository.DexterRepository.dataRevision.collectLatest {
+                loadTasks()
+            }
+        }
     }
 
     constructor() : this(

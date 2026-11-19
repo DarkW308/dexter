@@ -179,6 +179,23 @@ class VoiceInteractionDialog(
                 }
             }
         }
+
+        binding.btnQuickSystemVoice.setOnClickListener {
+            speechManager.stopListening()
+            if (onLaunchSystemVoice != null) {
+                onLaunchSystemVoice.invoke()
+            } else {
+                try {
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak a command to Dexter")
+                    }
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    binding.transcriptText.text = "System speech intent failed: ${e.message}"
+                }
+            }
+        }
     }
 
     private fun observeSpeechState() {
@@ -190,6 +207,7 @@ class VoiceInteractionDialog(
                     OrbVisualState.IDLE -> {
                         if (!speechManager.isRecognitionAvailable()) {
                             binding.stateLabel.text = "Voice Ready"
+                            binding.btnQuickSystemVoice.visibility = View.VISIBLE
                         } else {
                             binding.stateLabel.text = "Tap orb to speak"
                         }
@@ -271,6 +289,7 @@ class VoiceInteractionDialog(
                 binding.stateLabel.text = "Voice Assistant Ready"
                 binding.transcriptText.text = errorMsg
                 binding.audioIndicator.visibility = View.GONE
+                binding.btnQuickSystemVoice.visibility = View.VISIBLE
             }
         }
     }
@@ -294,6 +313,17 @@ class VoiceInteractionDialog(
                     harnessEngine.executeHarness(clean)
                 }
 
+                // Update ONNX Telemetry Badge
+                val modelTag = if (harnessResult.isModelBacked) "[ONNX Neural]" else "[Fallback Rules]"
+                val badgeText = "$modelTag · ${harnessResult.executionLatencyMs}ms"
+                binding.telemetryBadge.text = badgeText
+                binding.telemetryBadge.visibility = View.VISIBLE
+                if (harnessResult.isModelBacked) {
+                    binding.telemetryBadge.setTextColor(ContextCompat.getColor(context, R.color.status_live))
+                } else {
+                    binding.telemetryBadge.setTextColor(ContextCompat.getColor(context, R.color.dexter_text_secondary))
+                }
+
                 if (harnessResult.requiresUserConfirmation) {
                     val prompt = harnessResult.confirmationPrompt ?: "Proceed with this change? Confirm?"
                     binding.confirmationCard.visibility = View.VISIBLE
@@ -302,6 +332,27 @@ class VoiceInteractionDialog(
                 } else {
                     speechManager.speak(harnessResult.summaryText)
                     onActionCompleted?.invoke(harnessResult.summaryText)
+
+                    // 5-Second Tappable Undo Banner for reversible mutations
+                    if (harnessResult.isReversibleMutation && harnessResult.success) {
+                        com.google.android.material.snackbar.Snackbar.make(
+                            binding.root,
+                            harnessResult.summaryText,
+                            5000
+                        ).setAction("UNDO") {
+                            dialogScope.launch {
+                                val undone = withContext(Dispatchers.IO) {
+                                    com.aistudio.dexter.data.db.DexterDatabaseHelper.getInstance(context).rollbackLastAction()
+                                }
+                                if (undone) {
+                                    com.aistudio.dexter.data.repository.DexterRepository.notifyDataChanged()
+                                    speechManager.speak("Undone, sir. The record has been removed.")
+                                    binding.transcriptText.text = "Action reverted."
+                                    binding.responseText.text = "Record removed."
+                                }
+                            }
+                        }.show()
+                    }
                 }
             } catch (e: Exception) {
                 speechManager.speak("Sorry, I encountered an issue processing that.")
@@ -321,6 +372,7 @@ class VoiceInteractionDialog(
         speechManager.stopListening()
         speechManager.stopSpeaking()
         speechManager.setVisualState(OrbVisualState.IDLE)
+        com.aistudio.dexter.service.DexterVoiceService.resumeWakeWordListening()
         dialogScope.cancel()
         super.dismiss()
     }

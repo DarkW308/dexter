@@ -144,6 +144,13 @@ class MainActivity : AppCompatActivity() {
         try { loadDashboardData() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in loadDashboardData", e) }
         try { updateServiceStatus() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in updateServiceStatus", e) }
 
+        // Observe reactive database dataRevision events across all 16 segments
+        lifecycleScope.launch {
+            DexterRepository.dataRevision.collectLatest {
+                loadDashboardData()
+            }
+        }
+
         try {
             if (intent.getBooleanExtra("action_open_voice", false)) {
                 openVoiceDialog()
@@ -271,6 +278,26 @@ class MainActivity : AppCompatActivity() {
             // Refresh dashboard data metrics (e.g. expenses, tasks)
             loadDashboardData()
 
+            // 5-Second Tappable Undo Banner for reversible mutations
+            if (harnessResult.isReversibleMutation && harnessResult.success) {
+                com.google.android.material.snackbar.Snackbar.make(
+                    binding.root,
+                    harnessResult.summaryText,
+                    5000
+                ).setAction("UNDO") {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val undone = com.aistudio.dexter.data.db.DexterDatabaseHelper.getInstance(this@MainActivity).rollbackLastAction()
+                        if (undone) {
+                            DexterRepository.notifyDataChanged()
+                            withContext(Dispatchers.Main) {
+                                speechManager.speak("Undone, sir. The record has been removed.")
+                                Toast.makeText(this@MainActivity, "Action undone, record removed.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }.show()
+            }
+
             // Return to IDLE after a short delay
             kotlinx.coroutines.delay(3000)
             setVisualState(OrbVisualState.IDLE)
@@ -350,6 +377,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Voice engine initializing, please wait...", Toast.LENGTH_SHORT).show()
             return
         }
+        DexterVoiceService.pauseWakeWordListening()
         val dialog = VoiceInteractionDialog(
             context = this,
             speechManager = speechManager,
@@ -374,6 +402,7 @@ class MainActivity : AppCompatActivity() {
         dialog.setOnDismissListener {
             activeVoiceDialog = null
             setVisualState(OrbVisualState.IDLE)
+            DexterVoiceService.resumeWakeWordListening()
             loadDashboardData()
         }
         dialog.show()

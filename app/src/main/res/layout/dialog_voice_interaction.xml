@@ -77,6 +77,23 @@
             android:textSize="18sp"
             android:textStyle="bold" />
 
+        <!-- Model Execution Telemetry Badge -->
+        <TextView
+            android:id="@+id/telemetryBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_telemetry_badge"
+            android:fontFamily="monospace"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:text="[ONNX Neural · 38ms]"
+            android:textColor="@color/dexter_primary"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
         <!-- Live Partial / Final Transcript -->
         <TextView
             android:id="@+id/transcriptText"
@@ -103,6 +120,20 @@
             android:gravity="center"
             android:textColor="@color/dexter_success"
             android:textSize="15sp"
+            android:visibility="gone" />
+
+        <!-- Direct Fast Fallback to Android System Speech Dialog -->
+        <Button
+            android:id="@+id/btnQuickSystemVoice"
+            style="@style/DexterButton.Outlined"
+            android:layout_width="wrap_content"
+            android:layout_height="42dp"
+            android:layout_marginTop="12dp"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="🎙️ Use System Speech Dialog"
+            android:textSize="13sp"
+            android:textColor="@color/dexter_primary_glow"
             android:visibility="gone" />
 
         <!-- Inline Confirmation Prompt Card -->

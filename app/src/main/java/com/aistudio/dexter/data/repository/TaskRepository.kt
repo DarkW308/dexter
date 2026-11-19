@@ -3,11 +3,13 @@ package com.aistudio.dexter.data.repository
 import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
+import android.util.Log
 import com.aistudio.dexter.data.db.DexterDatabaseHelper
 import com.aistudio.dexter.data.model.Priority
 import com.aistudio.dexter.data.model.TaskCounts
 import com.aistudio.dexter.data.model.TaskItem
 import com.aistudio.dexter.data.model.TaskStatus
+import com.aistudio.dexter.engine.Needle3Engine
 
 class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper), TaskDataSource {
 
@@ -70,6 +72,7 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper),
             }
             writableDb.insert("task_occurrences", null, occValues)
         }
+        DexterRepository.notifyDataChanged()
 
         return TaskItem(
             id = finalId,
@@ -142,6 +145,7 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper),
                 put("completed_at", System.currentTimeMillis())
             }
             db.update("task_occurrences", occValues, "task_id = ?", arrayOf(taskId.toString()))
+            DexterRepository.notifyDataChanged()
         }
         return rows > 0
     }
@@ -161,6 +165,7 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper),
                 put("status", "CANCELLED")
             }
             db.update("task_occurrences", occValues, "task_id = ?", arrayOf(taskId.toString()))
+            DexterRepository.notifyDataChanged()
         }
         return rows > 0
     }
@@ -171,7 +176,11 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper),
             put("status", "COMPLETED")
             put("completion_source", "DEXTER_RECORDED")
         }
-        return db.update("tasks", values, "status = 'PENDING'", null)
+        val count = db.update("tasks", values, "status = 'PENDING'", null)
+        if (count > 0) {
+            DexterRepository.notifyDataChanged()
+        }
+        return count
     }
 
     override fun markTaskPending(taskId: Long): Boolean {
@@ -187,6 +196,7 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper),
                 putNull("completed_at")
             }
             db.update("task_occurrences", occValues, "task_id = ?", arrayOf(taskId.toString()))
+            DexterRepository.notifyDataChanged()
         }
         return rows > 0
     }
@@ -204,7 +214,67 @@ class TaskRepository(dbHelper: DexterDatabaseHelper) : BaseRepository(dbHelper),
         val db = writableDb
         db.delete("task_occurrences", "task_id = ?", arrayOf(taskId.toString()))
         val rows = db.delete("tasks", "id = ?", arrayOf(taskId.toString()))
+        if (rows > 0) {
+            DexterRepository.notifyDataChanged()
+        }
         return rows > 0
+    }
+
+    override fun searchTasks(query: String, limit: Int): List<TaskItem> {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) return listPendingTasks(limit)
+
+        val sanitized = DexterDatabaseHelper.sanitizeFtsQuery(cleanQuery)
+        val list = mutableListOf<TaskItem>()
+        val db = readableDb
+
+        // 1. SQLite FTS5 MATCH Query
+        if (sanitized.isNotBlank()) {
+            try {
+                val sql = """
+                    SELECT t.id, t.title, t.priority, t.project_id, t.status, t.due_at, t.scheduled_start, 
+                           t.scheduled_end, t.estimated_duration_seconds, t.completion_source, t.created_at, t.notes, t.category
+                    FROM tasks t
+                    JOIN tasks_fts f ON t.id = f.rowid
+                    WHERE tasks_fts MATCH ?
+                    ORDER BY bm25(tasks_fts) ASC
+                    LIMIT ?
+                """.trimIndent()
+                val cursor = db.rawQuery(sql, arrayOf(sanitized, limit.toString()))
+                cursor.use {
+                    while (it.moveToNext()) {
+                        list.add(parseTaskCursor(it))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("TaskRepository", "FTS5 task query notice: ${e.message}")
+            }
+        }
+
+        // 2. Semantic vector embedding fallback if FTS5 returns 0 matches
+        if (list.isEmpty()) {
+            val allTasks = getAllTasks(limit = 100)
+            if (allTasks.isNotEmpty()) {
+                try {
+                    val needleEngine = Needle3Engine.getInstance(dbHelper.context)
+                    val queryVec = needleEngine.extractEmbedding(cleanQuery)
+                    val ranked = allTasks.map { task ->
+                        val docText = "${task.title} ${task.notes} ${task.category}".trim()
+                        val taskVec = needleEngine.extractEmbedding(docText)
+                        val sim = needleEngine.cosineSimilarity(queryVec, taskVec)
+                        Pair(task, sim)
+                    }.filter { it.second > 0.30f }
+                     .sortedByDescending { it.second }
+                     .take(limit)
+                     .map { it.first }
+                    list.addAll(ranked)
+                } catch (e: Exception) {
+                    Log.w("TaskRepository", "Semantic task embedding notice: ${e.message}")
+                }
+            }
+        }
+
+        return list
     }
 
     override fun getAllTasks(limit: Int): List<TaskItem> {

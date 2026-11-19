@@ -107,6 +107,16 @@ class ContinuousWakeWordRecorder(
                     }
 
                     val record = audioRecord ?: break
+                    if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                        try {
+                            record.startRecording()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to startRecording on resume: ${e.message}")
+                            try { Thread.sleep(100L) } catch (ie: InterruptedException) { break }
+                            continue
+                        }
+                    }
+
                     val readCount = record.read(buffer, 0, buffer.size)
 
                     if (readCount > 0) {
@@ -135,11 +145,20 @@ class ContinuousWakeWordRecorder(
     }
 
     /**
-     * Temporarily pauses wake-word recording (e.g., when Dexter is actively speaking).
+     * Temporarily pauses wake-word recording (e.g., when Dexter is actively speaking or foreground SpeechRecognizer is listening).
+     * Stops AudioRecord so the hardware microphone is immediately released for other clients.
      */
     fun pause() {
         isPaused.set(true)
         detector.reset()
+        try {
+            if (audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                audioRecord?.stop()
+                Log.d(TAG, "AudioRecord stopped for pause, microphone hardware released.")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error pausing AudioRecord: ${e.message}")
+        }
     }
 
     /**

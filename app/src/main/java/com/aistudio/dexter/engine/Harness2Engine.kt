@@ -73,7 +73,8 @@ class Harness2Engine(
         val parameters: MutableMap<String, Any?>,
         val confidence: Float,
         val reasoning: String,
-        val requiresConfirmation: Boolean = false
+        val requiresConfirmation: Boolean = false,
+        val isModelBacked: Boolean = false
     )
 
     data class ProposedPlan(
@@ -97,7 +98,10 @@ class Harness2Engine(
         val executedActionsCount: Int,
         val actionResults: List<ActionResult>,
         val requiresUserConfirmation: Boolean = false,
-        val confirmationPrompt: String? = null
+        val confirmationPrompt: String? = null,
+        val isModelBacked: Boolean = false,
+        val executionLatencyMs: Long = 0L,
+        val isReversibleMutation: Boolean = false
     )
 
     // -------------------------------------------------------------
@@ -108,17 +112,24 @@ class Harness2Engine(
      * Executes the complete recursive harnessing loop on user input.
      */
     suspend fun executeHarness(rawInput: String): HarnessResult = withContext(Dispatchers.IO) {
+        val startTime = System.currentTimeMillis()
         val clean = DexterIntentRouter.stripWakeWord(rawInput).trim()
 
         // Hands-Free 5-Second Voice Undo Intercept
         if (clean.equals("undo", ignoreCase = true) || clean.equals("undo that", ignoreCase = true)) {
             val rolledBack = com.aistudio.dexter.data.db.DexterDatabaseHelper.getInstance(context).rollbackLastAction()
+            if (rolledBack) {
+                com.aistudio.dexter.data.repository.DexterRepository.notifyDataChanged()
+            }
             val feedback = if (rolledBack) "Undone, sir. The record has been removed." else "Nothing to undo within the 5-second window."
             return@withContext HarnessResult(
                 success = rolledBack,
                 summaryText = feedback,
                 executedActionsCount = if (rolledBack) 1 else 0,
-                actionResults = listOf(ActionResult(rolledBack, "UNDO", feedback))
+                actionResults = listOf(ActionResult(rolledBack, "UNDO", feedback)),
+                isModelBacked = false,
+                executionLatencyMs = System.currentTimeMillis() - startTime,
+                isReversibleMutation = false
             )
         }
 
@@ -137,12 +148,15 @@ class Harness2Engine(
                 success = false,
                 summaryText = errorMsg,
                 executedActionsCount = 0,
-                actionResults = emptyList()
+                actionResults = emptyList(),
+                isModelBacked = proposedPlan.actions.any { it.isModelBacked },
+                executionLatencyMs = System.currentTimeMillis() - startTime,
+                isReversibleMutation = false
             )
         }
 
         // 3. Compose: Execute transactionally and synthesize unified natural language output
-        val result = compose(probedPlan)
+        val result = compose(probedPlan, startTime)
 
         // Level 2 Recursion: Extract experience into memory
         extractExperience(rawInput, probedPlan, result)
@@ -202,19 +216,22 @@ class Harness2Engine(
                         intent = layaRes.intent,
                         parameters = params,
                         confidence = layaRes.confidence,
-                        reasoning = "Harness² Laya Neural Slot-Filler (ModernBERT INT8)"
+                        reasoning = "Harness² Laya Neural Slot-Filler (ModernBERT INT8)",
+                        isModelBacked = layaRes.isModelBacked
                     )
                 )
             } else {
                 // Generative Fallback Proposal
                 val params = mutableMapOf<String, Any?>("query" to clean)
                 if (requestId.isNotBlank()) params["request_id"] = requestId
+                val gemmaInstalled = Gemma3Engine.getInstance(context).isInstalled()
                 actions.add(
                     ProposedAction(
                         intent = "SYNTHESIZE_REPLY",
                         parameters = params,
                         confidence = 0.5f,
-                        reasoning = "Harness² Gemma 3 System-2 Synthesizer"
+                        reasoning = "Harness² Gemma 3 System-2 Synthesizer",
+                        isModelBacked = gemmaInstalled
                     )
                 )
             }
@@ -305,7 +322,7 @@ class Harness2Engine(
      * Hands-free speed: Direct actions execute straight into SQLite (<45ms).
      * Synthesize reply: Gathers SQLite rows across target segments and passes into Gemma 3 (maxNewTokens=96).
      */
-    private suspend fun compose(probed: ProbedPlan): HarnessResult {
+    private suspend fun compose(probed: ProbedPlan, startTime: Long): HarnessResult {
         val results = mutableListOf<ActionResult>()
         val speechParts = mutableListOf<String>()
 
@@ -338,11 +355,29 @@ class Harness2Engine(
         }
 
         val combinedMessage = speechParts.joinToString(" ")
+        val isModel = probed.validatedActions.any { it.isModelBacked }
+        val isMutation = results.any { res ->
+            res.success && res.intent in setOf(
+                "CREATE_TASK", "COMPLETE_TASK", "DELETE_TASK", "CANCEL_TASK", "COMPLETE_ALL_TASKS",
+                "LOG_EXPENSE", "LOG_TRANSACTION", "LOG_JOURNAL", "CREATE_GOAL", "CREATE_PROJECT",
+                "CREATE_MILESTONE", "CREATE_ALARM", "LOG_INTERACTION", "CREATE_SCHEDULE_BLOCK",
+                "CREATE_PERSON", "LOG_HYDRATION", "LOG_SLEEP", "LOG_MOOD", "CREATE_HABIT",
+                "COMPLETE_HABIT", "SAVE_KNOWLEDGE", "CAPTURE_INTAKE", "CREATE_RULE"
+            )
+        }
+        if (isMutation) {
+            com.aistudio.dexter.data.repository.DexterRepository.notifyDataChanged()
+        }
+        val latency = System.currentTimeMillis() - startTime
+
         return HarnessResult(
             success = results.all { it.success },
             summaryText = combinedMessage,
             executedActionsCount = results.size,
-            actionResults = results
+            actionResults = results,
+            isModelBacked = isModel,
+            executionLatencyMs = latency,
+            isReversibleMutation = isMutation
         )
     }
 

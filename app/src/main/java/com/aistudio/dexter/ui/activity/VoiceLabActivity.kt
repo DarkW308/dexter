@@ -32,6 +32,7 @@ class VoiceLabActivity : ComponentActivity() {
     private val speechLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        com.aistudio.dexter.service.DexterVoiceService.resumeWakeWordListening()
         if (result.resultCode == Activity.RESULT_OK) {
             val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!spoken.isNullOrBlank()) {
@@ -142,6 +143,7 @@ class VoiceLabActivity : ComponentActivity() {
     }
 
     private fun launchSpeechRecognizer() {
+        com.aistudio.dexter.service.DexterVoiceService.pauseWakeWordListening()
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak command (Any accent or language supported)...")
@@ -149,6 +151,7 @@ class VoiceLabActivity : ComponentActivity() {
         try {
             speechLauncher.launch(intent)
         } catch (e: Exception) {
+            com.aistudio.dexter.service.DexterVoiceService.resumeWakeWordListening()
             Toast.makeText(this, "Speech recognition unavailable on this device", Toast.LENGTH_SHORT).show()
         }
     }

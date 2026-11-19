@@ -5,7 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
 
-class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+class DexterDatabaseHelper(val context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         const val DATABASE_NAME = "dexter.db"
@@ -19,6 +19,18 @@ class DexterDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABAS
             return instance ?: synchronized(this) {
                 instance ?: DexterDatabaseHelper(context.applicationContext).also { instance = it }
             }
+        }
+
+        /**
+         * Sanitizes user input for safe SQLite FTS5 MATCH queries.
+         * Strips dangerous operators like ", *, -, :, ^, (, ), +, ~, {, }, [, ]
+         * to prevent SQLite syntax exceptions, and formats terms for prefix matching.
+         */
+        fun sanitizeFtsQuery(query: String): String {
+            val cleaned = query.replace(Regex("[\"*\\-:\\^\\(\\)\\+\\~\\{\\}\\[\\]]"), " ")
+            val tokens = cleaned.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+            if (tokens.isEmpty()) return ""
+            return tokens.joinToString(" ") { "$it*" }
         }
     }
 

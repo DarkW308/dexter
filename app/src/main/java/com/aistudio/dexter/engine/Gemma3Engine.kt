@@ -84,8 +84,9 @@ class Gemma3Engine private constructor(private val context: Context) {
 
     private fun resetIdleTimer() {
         idleJob?.cancel()
+        val timeoutMs = DeviceHardwareProfile.getAdaptiveGemmaTimeoutMs(context)
         idleJob = scope.launch {
-            delay(IDLE_UNLOAD_TIMEOUT_MS)
+            delay(timeoutMs)
             unloadSession()
         }
     }
@@ -104,7 +105,8 @@ class Gemma3Engine private constructor(private val context: Context) {
                     ortEnv = OrtEnvironment.getEnvironment("Gemma3Runtime")
                 }
                 val opts = OrtSession.SessionOptions().apply {
-                    setIntraOpNumThreads(2)
+                    val optimalThreads = DeviceHardwareProfile.getOptimalThreadCount(context)
+                    setIntraOpNumThreads(optimalThreads)
                     setInterOpNumThreads(1)
                     setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
                 }

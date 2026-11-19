@@ -66,7 +66,8 @@ class Needle3Engine private constructor(private val context: Context) {
                 ortEnv = OrtEnvironment.getEnvironment("Needle3Runtime")
             }
             val opts = OrtSession.SessionOptions().apply {
-                setIntraOpNumThreads(2)
+                val optimalThreads = DeviceHardwareProfile.getOptimalThreadCount(context)
+                setIntraOpNumThreads(optimalThreads)
                 setInterOpNumThreads(1)
                 setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
             }
@@ -269,5 +270,17 @@ class Needle3Engine private constructor(private val context: Context) {
             for (i in vec.indices) vec[i] /= norm
         }
         return vec
+    }
+
+    /**
+     * Computes the cosine similarity between two L2-normalized embedding vectors (dot product).
+     */
+    fun cosineSimilarity(v1: FloatArray, v2: FloatArray): Float {
+        if (v1.isEmpty() || v2.isEmpty() || v1.size != v2.size) return 0f
+        var dot = 0f
+        for (i in v1.indices) {
+            dot += v1[i] * v2[i]
+        }
+        return dot
     }
 }

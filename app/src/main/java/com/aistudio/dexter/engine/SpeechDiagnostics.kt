@@ -118,6 +118,9 @@ object SpeechHardwareProbe {
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         val bufferSize = minBufferSize.coerceAtLeast(4096)
 
+        // Pause continuous background wake-word capture so probe has exclusive mic access
+        com.aistudio.dexter.service.DexterVoiceService.pauseWakeWordListening()
+
         var audioRecord: AudioRecord? = null
         try {
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -207,6 +210,7 @@ object SpeechHardwareProbe {
             try {
                 audioRecord?.release()
             } catch (ignored: Exception) {}
+            com.aistudio.dexter.service.DexterVoiceService.resumeWakeWordListening()
         }
     }
 }
