@@ -73,7 +73,6 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            DexterVoiceService.startService(this)
             openVoiceDialog()
         } else {
             // Still allow dialog for text-based natural language interaction
@@ -126,19 +125,6 @@ class MainActivity : AppCompatActivity() {
         try { setupAlexaModeCard() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupAlexaModeCard", e) }
         try { setupSegmentsHubCard() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupSegmentsHubCard", e) }
         try { setupProfileAvatar() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in setupProfileAvatar", e) }
-
-        // Start voice service if permission was already granted
-        try {
-            val hasPermission = ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-            if (hasPermission) {
-                DexterVoiceService.startService(this)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Error checking audio permission or starting service", e)
-        }
 
         // Eagerly refresh data and service status
         try { loadDashboardData() } catch (e: Exception) { android.util.Log.e("MainActivity", "Error in loadDashboardData", e) }
@@ -418,9 +404,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private var isAlexaModeActive = true
+    private var isAlexaModeActive = false
 
     private fun setupAlexaModeCard() {
+        binding.cardAlexaMode.visibility = View.GONE
         binding.btnToggleAlexaVoice.setOnClickListener {
             isAlexaModeActive = !isAlexaModeActive
             DexterVoiceService.setAlexaMode(this, isAlexaModeActive)

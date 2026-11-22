@@ -2114,10 +2114,6 @@ class DexterRepository(val context: Context) {
         )
     }
 
-    fun notifyDataChanged() {
-        _dataRevision.tryEmit(System.currentTimeMillis())
-    }
-
     // Backup, Export, Restore, and Purge Methods
     fun exportBackupJson(): String = com.aistudio.dexter.data.backup.DexterBackupManager.exportDatabaseToJson(dbHelper)
 
@@ -2158,8 +2154,13 @@ class DexterRepository(val context: Context) {
         com.aistudio.dexter.data.backup.DexterBackupManager.getTableRecordCounts(dbHelper)
 
     companion object {
+        private const val TAG = "DexterRepository"
         private val _dataRevision = MutableSharedFlow<Long>(extraBufferCapacity = 1)
         val dataRevision: SharedFlow<Long> = _dataRevision.asSharedFlow()
+
+        fun notifyDataChanged() {
+            _dataRevision.tryEmit(System.currentTimeMillis())
+        }
 
         @Volatile
         private var INSTANCE: DexterRepository? = null

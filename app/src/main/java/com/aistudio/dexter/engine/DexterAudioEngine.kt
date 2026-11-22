@@ -55,7 +55,7 @@ class DexterAudioEngine(
     private var wasMutedForRecognition = false
 
     private val isListeningActive = AtomicBoolean(false)
-    var isAlexaHandsFreeEnabled = true
+    var isAlexaHandsFreeEnabled = false
     var isProactiveMode = false
 
     private val _engineState = MutableStateFlow(OrbVisualState.IDLE)

@@ -15,6 +15,7 @@
     <color name="dexter_on_background">#FFFFFF</color>
     <color name="dexter_on_surface">#F2F2F7</color>
     <color name="dexter_on_surface_variant">#8E8E93</color>
+    <color name="dexter_text_secondary">#8E8E93</color>
 
     <!-- Feedback & Priority Colors (Apple System Palette) -->
     <color name="dexter_error">#FF453A</color>
