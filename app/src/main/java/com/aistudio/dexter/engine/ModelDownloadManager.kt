@@ -57,8 +57,8 @@ class ModelDownloadManager private constructor(private val context: Context) {
     }
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -109,13 +109,13 @@ class ModelDownloadManager private constructor(private val context: Context) {
             ModelInfo(
                 id = "laya",
                 name = "Laya (ModernBERT INT8)",
-                repoId = "convaiinnovations/laya",
-                downloadUrl = "https://huggingface.co/convaiinnovations/laya/resolve/main/model_int8.onnx",
+                repoId = "techtheist/laya-onnx",
+                downloadUrl = "https://huggingface.co/techtheist/laya-onnx/resolve/main/en/model_int8.onnx",
                 format = "ONNX INT8",
                 targetFile = layaFile,
-                estimatedSizeMb = 34.2,
+                estimatedSizeMb = 554.0,
                 role = "Fast Decision & Slot-Filling Classifier (ONNX Runtime)",
-                compatibilityNote = "Sub-30ms intent parsing · 2-thread ARM NEON · ~34 MB RAM",
+                compatibilityNote = "Sub-30ms intent parsing · 2-thread ARM NEON · Zero-copy mmap",
                 isInstalled = layaInstalled,
                 installedSizeBytes = layaSize
             ),
@@ -151,6 +151,10 @@ class ModelDownloadManager private constructor(private val context: Context) {
         if (url.contains("huggingface.co/") && url.contains("/blob/")) {
             url = url.replace("/blob/", "/resolve/")
         }
+        // Redirect legacy / 404 convaiinnovations URL to verified working ONNX repository
+        if (url.contains("convaiinnovations/laya") && (url.endsWith(".onnx") || url.contains("model_int8"))) {
+            url = "https://huggingface.co/techtheist/laya-onnx/resolve/main/en/model_int8.onnx"
+        }
         return url
     }
 
@@ -165,13 +169,24 @@ class ModelDownloadManager private constructor(private val context: Context) {
     ) {
         val model = getPresetModels().find { it.id == modelId }
         val targetFile = model?.targetFile ?: File(context.filesDir, "models/${modelId}.bin")
-        val downloadUrl = normalizeHuggingFaceUrl(customUrl ?: model?.downloadUrl ?: "")
+        val primaryUrl = normalizeHuggingFaceUrl(customUrl ?: model?.downloadUrl ?: "")
 
-        if (downloadUrl.isBlank()) {
+        if (primaryUrl.isBlank()) {
             val err = "Download URL cannot be empty."
             _downloadState.value = ModelDownloadState.Failure(modelId, err)
             onResult?.invoke(false, err)
             return
+        }
+
+        // Multi-mirror fallback list for Laya to ensure resilient zero-404 downloads
+        val candidateUrls = if (modelId == "laya" && (customUrl == null || customUrl.contains("convaiinnovations/laya") || customUrl.contains("techtheist"))) {
+            listOf(
+                primaryUrl,
+                "https://huggingface.co/bgoldfarb93/laya-int8/resolve/main/laya.onnx",
+                "https://huggingface.co/techtheist/laya-onnx/resolve/main/en/model_int4.onnx"
+            ).distinct()
+        } else {
+            listOf(primaryUrl)
         }
 
         currentDownloadJob?.cancel()
@@ -180,79 +195,99 @@ class ModelDownloadManager private constructor(private val context: Context) {
             targetFile.parentFile?.mkdirs()
             val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
 
-            try {
-                Log.i(TAG, "Starting download for $modelId from: $downloadUrl")
-                val request = Request.Builder()
-                    .url(downloadUrl)
-                    .addHeader("User-Agent", "Dexter-Edge-AI/1.0 (Android; ARM64)")
-                    .build()
+            var downloadSuccess = false
+            var lastException: Exception? = null
 
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    throw IllegalStateException("HTTP ${response.code}: ${response.message}")
-                }
+            for ((attemptIndex, downloadUrl) in candidateUrls.withIndex()) {
+                if (downloadSuccess) break
+                try {
+                    Log.i(TAG, "Starting download for $modelId (attempt ${attemptIndex + 1}/${candidateUrls.size}) from: $downloadUrl")
+                    val request = Request.Builder()
+                        .url(downloadUrl)
+                        .addHeader("User-Agent", "Dexter-Edge-AI/1.0 (Android; ARM64)")
+                        .build()
 
-                val body = response.body ?: throw IllegalStateException("Empty response body from server.")
-                val totalLength = body.contentLength()
+                    val response = httpClient.newCall(request).execute()
+                    if (!response.isSuccessful) {
+                        response.close()
+                        throw IllegalStateException("HTTP ${response.code}: ${response.message}")
+                    }
 
-                body.byteStream().use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        var downloadedSoFar = 0L
-                        var lastReportedPercent = -1
+                    val body = response.body ?: throw IllegalStateException("Empty response body from server.")
+                    val totalLength = body.contentLength()
 
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            downloadedSoFar += bytesRead
+                    body.byteStream().use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            val buffer = ByteArray(65536) // 64 KB streaming buffer for high-throughput edge download
+                            var bytesRead: Int
+                            var downloadedSoFar = 0L
+                            var lastReportedPercent = -1
 
-                            val percent = if (totalLength > 0) {
-                                ((downloadedSoFar * 100) / totalLength).toInt().coerceIn(0, 100)
-                            } else {
-                                -1
-                            }
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
+                                output.write(buffer, 0, bytesRead)
+                                downloadedSoFar += bytesRead
 
-                            if (percent != lastReportedPercent) {
-                                lastReportedPercent = percent
-                                _downloadState.value = ModelDownloadState.Progress(
-                                    modelId, percent, downloadedSoFar, totalLength
-                                )
-                                withContext(Dispatchers.Main) {
-                                    onProgress?.invoke(percent, downloadedSoFar, totalLength)
+                                val percent = if (totalLength > 0) {
+                                    ((downloadedSoFar * 100) / totalLength).toInt().coerceIn(0, 100)
+                                } else {
+                                    -1
+                                }
+
+                                if (percent != lastReportedPercent) {
+                                    lastReportedPercent = percent
+                                    _downloadState.value = ModelDownloadState.Progress(
+                                        modelId, percent, downloadedSoFar, totalLength
+                                    )
+                                    withContext(Dispatchers.Main) {
+                                        onProgress?.invoke(percent, downloadedSoFar, totalLength)
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                // Atomic rename
-                if (targetFile.exists()) targetFile.delete()
-                if (!tempFile.renameTo(targetFile)) {
-                    tempFile.copyTo(targetFile, overwrite = true)
-                    tempFile.delete()
-                }
+                    // Atomic rename
+                    if (targetFile.exists()) targetFile.delete()
+                    if (!tempFile.renameTo(targetFile)) {
+                        tempFile.copyTo(targetFile, overwrite = true)
+                        tempFile.delete()
+                    }
 
-                // If needle binary, ensure executable permissions
-                if (modelId == "needle3") {
-                    targetFile.setReadable(true, false)
-                    targetFile.setExecutable(true, false)
-                }
+                    // If needle binary, ensure executable permissions
+                    if (modelId == "needle3") {
+                        targetFile.setReadable(true, false)
+                        targetFile.setExecutable(true, false)
+                    }
 
-                // If Laya ONNX, reload session
-                if (modelId == "laya") {
-                    LayaEngine.getInstance(context).reload()
-                }
+                    // If Laya ONNX, reload session
+                    if (modelId == "laya") {
+                        LayaEngine.getInstance(context).reload()
+                    }
 
-                val successMsg = "Successfully installed ${model?.name ?: modelId} (${targetFile.length() / (1024 * 1024)} MB). Active offline."
-                Log.i(TAG, successMsg)
-                _downloadState.value = ModelDownloadState.Success(modelId, successMsg)
-                withContext(Dispatchers.Main) {
-                    onResult?.invoke(true, successMsg)
-                }
+                    val successMsg = "Successfully installed ${model?.name ?: modelId} (${targetFile.length() / (1024 * 1024)} MB). Active offline."
+                    Log.i(TAG, successMsg)
+                    downloadSuccess = true
+                    _downloadState.value = ModelDownloadState.Success(modelId, successMsg)
+                    withContext(Dispatchers.Main) {
+                        onResult?.invoke(true, successMsg)
+                    }
+                    break
 
-            } catch (e: Exception) {
+                } catch (e: Exception) {
+                    if (tempFile.exists()) tempFile.delete()
+                    lastException = e
+                    if (e is CancellationException) {
+                        Log.i(TAG, "Download cancelled by user.")
+                        break
+                    }
+                    Log.w(TAG, "Download attempt ${attemptIndex + 1} failed for $modelId from $downloadUrl: ${e.message}")
+                }
+            }
+
+            if (!downloadSuccess) {
                 if (tempFile.exists()) tempFile.delete()
-                val errorMsg = if (e is CancellationException) "Download cancelled." else "Download failed: ${e.message}"
+                val e = lastException
+                val errorMsg = if (e is CancellationException) "Download cancelled." else "Download failed: ${e?.message ?: "Unknown error"}"
                 Log.e(TAG, errorMsg, e)
                 _downloadState.value = ModelDownloadState.Failure(modelId, errorMsg)
                 withContext(Dispatchers.Main) {

@@ -226,7 +226,7 @@ class ModelManagerDialog(
 
         val body = TextView(context).apply {
             text = """
-                • ONNX Runtime: Models like 'convaiinnovations/laya' run via Microsoft ONNX Runtime Android with INT8 quantization, using zero-copy mmap.
+                • ONNX Runtime: Models like 'techtheist/laya-onnx' run via Microsoft ONNX Runtime Android with INT8 quantization, using zero-copy mmap.
                 • Background Daemon: Models like 'Cactus-Compute/needle3' run as an isolated background worker during idle time, freeing RAM immediately after synthesis.
                 • Model Compatibility: For Helio P60 (6GB RAM), choose models ≤ 150 MB in ONNX format or ARM64 native binaries.
                 • Zero Data Leakage: Once downloaded, models run 100% locally with no telemetry or internet calls.
@@ -251,7 +251,7 @@ class ModelManagerDialog(
         }
 
         val hintText = TextView(context).apply {
-            text = "Enter a direct Hugging Face URL or repository model file (e.g. 'convaiinnovations/laya' or full resolve URL):"
+            text = "Enter a direct Hugging Face URL or repository model file (e.g. 'techtheist/laya-onnx' or full resolve URL):"
             textSize = 12f
             setTextColor(0xFFECEFF1.toInt())
         }
@@ -259,7 +259,7 @@ class ModelManagerDialog(
 
         val urlInput = EditText(context).apply {
             hint = "https://huggingface.co/.../model_int8.onnx"
-            setText("https://huggingface.co/convaiinnovations/laya/resolve/main/model_int8.onnx")
+            setText("https://huggingface.co/techtheist/laya-onnx/resolve/main/en/model_int8.onnx")
             textSize = 12f
         }
         container.addView(urlInput)

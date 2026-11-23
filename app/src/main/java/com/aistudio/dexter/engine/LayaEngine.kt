@@ -219,8 +219,11 @@ class LayaEngine private constructor(private val context: Context?) {
                 )
                 sess.run(inputs).use { results ->
                     val output = results.firstOrNull()?.value
-                    val firstRow = (output as? Array<*>)?.firstOrNull()
-                    val logits = firstRow as? FloatArray
+                    val logits = when (output) {
+                        is Array<*> -> output.firstOrNull() as? FloatArray
+                        is FloatArray -> output
+                        else -> null
+                    }
                     if (logits != null) {
                         val intent = decodeLogitsToIntent(logits)
                         val slots = runCalibratedSlotFilling(text, lower).slots

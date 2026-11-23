@@ -2153,6 +2153,10 @@ class DexterRepository(val context: Context) {
     fun getTableRecordCounts(): Map<String, Int> =
         com.aistudio.dexter.data.backup.DexterBackupManager.getTableRecordCounts(dbHelper)
 
+    fun notifyDataChanged() {
+        Companion.notifyDataChanged()
+    }
+
     companion object {
         private const val TAG = "DexterRepository"
         private val _dataRevision = MutableSharedFlow<Long>(extraBufferCapacity = 1)
